@@ -97,7 +97,7 @@ Port the stack into this repository as a self-contained, public, Apache-2.0 proj
 
 2. **One-command bring-up.** `docker compose up -d` from the repository root starts every service, builds the thin MLflow image on first run, and needs no prior step, no environment file, and no manual Grafana configuration. The compose file declares the MLflow `build:` context so a first run builds it automatically rather than failing on a missing image. A convenience wrapper `scripts/stack.up.sh` starts the stack and then blocks until every readiness endpoint answers, so a script or an agent can depend on a ready stack rather than sleeping.
 
-3. **Single published port, preserved.** The HAProxy edge proxy remains the only service that publishes a host port, and it stays bound to `127.0.0.1:24317`. Every routing rule ported from the parent is preserved exactly. This is the load-bearing privacy control of the whole project: telemetry that includes prompt and tool content is bound to loopback in one place rather than in seven.
+3. **Single published port, preserved.** The HAProxy edge proxy remains the only service that publishes a host port, and it stays bound to loopback, `127.0.0.1`, on the `EDGE_PORT` value that defaults to `24317`. Every routing rule ported from the parent is preserved exactly. This is the load-bearing privacy control of the whole project: telemetry that includes prompt and tool content is bound to loopback in one place rather than in seven.
 
 4. **Configurable port with one edit.** The published port is read from a single compose variable, `EDGE_PORT`, defaulting to `24317`, so a user whose machine already uses that port changes one value in `.env` instead of editing several files. `.env.example` documents it, `.env` is gitignored, and the default path requires no `.env` at all.
 
@@ -130,6 +130,7 @@ flowchart TD
     ALLOY --> MIMIR
     ALLOY --> LOKI
     ALLOY --> TEMPO
+    ALLOY --- AV[("alloy-data volume")]
     LOKI --- LV[("loki-data volume")]
     MIMIR --- MV[("mimir-data volume")]
     TEMPO --- TV[("tempo-data volume")]
@@ -146,7 +147,7 @@ flowchart TD
 2. The stack **MUST** consist of exactly seven services: `loki`, `mimir`, `tempo`, `alloy`, `grafana`, `haproxy`, and `mlflow`.
 3. Exactly one service, `haproxy`, **MUST** publish a host port, and that mapping **MUST** bind to `127.0.0.1` only.
 4. The published host port **MUST** be read from a compose variable named `EDGE_PORT` whose default value is `24317`, and the stack **MUST** start correctly when no `.env` file is present.
-5. Every image tag **MUST** be pinned to an explicit version, and no image reference **MUST** use `latest`.
+5. Every image reference **MUST** carry an explicit version tag, and every image reference **MUST NOT** use `latest`.
 6. Grafana **MUST** start with the Loki, Mimir, and Tempo datasources already provisioned and reporting healthy, with no manual configuration.
 7. The MLflow service **MUST** build from the committed `stack/mlflow/Dockerfile` on first `docker compose up` without a separate build command.
 8. All five telemetry and application readiness endpoints (`/loki/ready`, `/prometheus/ready`, `/tempo/ready`, `/alloy/-/healthy`, `/api/health`) and the MLflow health endpoint (`/mlflow/health`) **MUST** answer through the single published port.
@@ -156,8 +157,8 @@ flowchart TD
 12. The repository **MUST** contain an Apache-2.0 `LICENSE` file at its root.
 13. The repository **MUST** contain a `.gitignore` that excludes `.env` and any local build or data artifact.
 14. The repository **MUST** contain `.env.example` documenting every supported variable, including `EDGE_PORT`, with its default.
-15. No file in the repository **MUST** reference a path, script, or commit that exists only in the private parent repository.
-16. No file in the repository **MUST** contain a governance identifier of the form `CR-` followed by digits, outside `docs/cr/`.
+15. Every file in the repository **MUST NOT** reference a path, script, or commit that exists only in the private parent repository.
+16. Every file in the repository, outside `docs/cr/`, **MUST NOT** contain a governance identifier of the form `CR-` followed by digits.
 17. Every configuration file **MUST** retain a top comment stating its purpose and a one-line `@agents-index` synthesis of that purpose.
 18. The README **MUST** contain a privacy section naming the content-logging flags, stating that prompts and responses are stored in plaintext locally, stating that no data leaves the machine, and giving the exact edit that redacts each field.
 19. The README **MUST** contain a rollback and teardown section expressed only in this repository's own terms, covering `docker compose down` and `docker compose down -v` with their differing data outcomes.
@@ -322,7 +323,7 @@ Then only the haproxy service shows a published port
   And that port is bound to 127.0.0.1
 ```
 
-### AC-3: The published port is changed by one edit (covers FR4, FR14)
+### AC-3: The published port is changed by one edit (covers FR4)
 
 ```gherkin
 Given the stack is stopped
@@ -441,6 +442,43 @@ Given any configuration file under stack/ or agents/
 When it is opened
 Then its first comment block states the file's purpose
   And it contains exactly one @agents-index line summarising that purpose
+```
+
+### AC-16: The start script blocks until the stack is ready (covers FR11)
+
+```gherkin
+Given the stack is stopped
+When the user runs scripts/stack.up.sh
+Then the script returns only after every readiness endpoint answers
+  And it exits 0 within the stated timeout
+  And when the timeout elapses before readiness, it exits non-zero and names the endpoint that did not answer
+```
+
+### AC-17: The environment files are correct (covers FR13, FR14)
+
+```gherkin
+Given a fresh clone of this repository
+When the user inspects .gitignore and .env.example
+Then .env is ignored by git and .env.example is not
+  And .env.example lists every supported variable, including EDGE_PORT, each with its default value
+```
+
+### AC-18: The stack has no hosted dependency (covers NFR1)
+
+```gherkin
+Given the committed stack configuration
+When each service configuration is inspected
+Then no service references a hosted account, a remote database, or a remote object store
+  And every storage backend writes to a local named volume
+```
+
+### AC-19: The local prerequisites are documented (covers NFR4)
+
+```gherkin
+Given the README
+When a first-time user reads the prerequisites section
+Then it states that Docker is the only prerequisite
+  And it states the minimum Docker Compose version the stack relies upon
 ```
 
 ## Quality Standards Compliance
@@ -568,3 +606,25 @@ Chosen approach: "port the proven stack into this repository as a self-contained
 * CR-0005: `AGENTS.md`, the Grafana MCP server, and `.mcp.json`.
 * CR-0006: the agent-driven installation path.
 * CR-0007: README screenshots and the finished onboarding narrative.
+
+<!-- review-summary -->
+Reviewer pass on 2026-08-01 against the current codebase and the proven parent stack at `claude-agent-teams/observability/`.
+
+Findings by category:
+- drift: 1. The Proposed State Diagram omitted the `alloy-data` named volume that exists in the parent `compose.yaml` and is required by FR9. Fixed by adding the volume node.
+- ambiguity (RFC 2119 inversion): 3. FR5, FR15, and FR16 used the malformed "no file MUST" / "no image reference MUST" construction, which literally states the opposite of the intent. Rewritten to explicit MUST NOT prohibitions.
+- coverage: 4. FR11, FR13, NFR1, and NFR4 had no acceptance criterion. FR14 was mis-attributed to AC-3, which never inspects `.env.example`.
+- consistency: 1. The "Single published port" prose read as if the port was fixed at `127.0.0.1:24317`, in tension with the EDGE_PORT override in FR4. Reworded to state the default.
+
+Fixes applied:
+- Added `alloy-data volume` to the Proposed State Diagram.
+- Rewrote FR5, FR15, FR16 to MUST NOT form.
+- Reworded Proposed Change item 3 to name EDGE_PORT and its 24317 default.
+- Removed the stale FR14 reference from AC-3's covers list.
+- Added AC-16 (FR11, start script blocks until ready), AC-17 (FR13, FR14, environment files), AC-18 (NFR1, no hosted dependency), AC-19 (NFR4, documented prerequisites). Every functional and non-functional requirement now traces to at least one acceptance criterion. Acceptance criteria run AC-1 through AC-19 with no gaps or duplicates.
+
+Verification confirmed against the parent stack: the FR8 and AC-4 readiness paths (`/loki/ready`, `/prometheus/ready`, `/tempo/ready`, `/alloy/-/healthy`, `/api/health`, `/mlflow/health`) all match live HAProxy backends; the pinned `haproxy:3.4.2-trixie` tag matches; the seven-service set matches; the three provisioned datasources (Mimir, Loki, Tempo) match. The Makefile `ci` composition (FR23 to FR27, AC-14) agrees with the Verification Commands block. EDGE_PORT defaults to 24317 consistently across requirements, criteria, risks, and commands; the repository's gitignored `.env` override to 24417 is a local coexistence detail the CR is not required to state.
+
+Unresolvable items requiring human decision: none (UNRESOLVED=0).
+<!-- /review-summary -->
+
