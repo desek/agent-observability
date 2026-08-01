@@ -1,12 +1,12 @@
 ---
 id: "CR-0006"
 name: cr-agent-driven-install-path
-description: Add a software 3.0 installation path so that a user who has cloned the repository can point a coding agent at one instruction and have the agent configure that agent's own telemetry against the stack, delivered as a skill with thin slash-command and prompt entry points for Claude Code and pi, expressed as natural-language instructions that call the repository's deterministic scripts, gated by explicit consent for every setting it changes, idempotent, verified end to end by a real agent turn, and reversible by a matching uninstall path.
+description: Add the project's primary and recommended installation path, a software 3.0 instruction that a user points their own coding agent at after cloning, which takes the machine from a fresh clone to verified working telemetry by checking prerequisites, starting the stack after asking, verifying it, configuring that agent against it, and proving the result with a real turn, delivered as a skill with thin slash-command and prompt entry points for Claude Code and pi, calling the repository's deterministic scripts, gated by explicit consent for every change, idempotent, and reversible by a matching uninstall path, with the manual command sequence retained as the documented alternative.
 status: "proposed"
 date: 2026-08-01
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, Claude Code users, pi users, open-source contributors
-priority: "high"
+priority: "critical"
 target-version: "0.1.0"
 source-branch: main
 source-commit: none (repository has no commits yet)
@@ -16,9 +16,11 @@ source-commit: none (repository has no commits yet)
 
 ## Change Summary
 
-Starting the stack is one command. Wiring an agent to it is not. Claude Code needs a set of environment keys in its settings file whose names cannot be guessed and one of which must be set to a non-default value or the metrics store rejects every counter. pi needs a package installed, a flag set, and a set of environment variables sourced. Neither is hard, and both are exactly the kind of multi-step, machine-specific, easy-to-get-subtly-wrong configuration that a coding agent does well.
+This change adds the project's **primary and recommended installation path**, and it is an instruction rather than a script. After cloning, the user asks their own coding agent to install the stack. The agent checks the prerequisites, starts the stack after asking, verifies it, works out which agent it is configuring, explains exactly what it will change, asks once, changes it, and then proves the result by producing telemetry and querying it back.
 
-This change adds an installation path the user drives by asking their agent. After cloning, the user runs one slash command, or pastes one sentence, and the agent works out which agent it is, checks whether the stack is running, explains what it is about to change, asks, changes it, and then proves it worked by producing telemetry and querying it back.
+The manual path does not disappear. `docker compose up -d` followed by hand-edited settings keeps working, is documented, and stays the fallback for a user with no agent or with a policy against letting one edit their configuration. It is the alternative, not the headline.
+
+The reason for the ordering is what the two paths can each do. Starting the stack is one command and the manual path handles it well. Wiring an agent is not: Claude Code needs a set of environment keys whose names cannot be guessed, one of which must be set to a non-default value or the metrics store rejects every counter, and pi needs a package installed, a flag set, and variables sourced. Both are multi-step, machine-specific, and easy to get subtly wrong, and neither ends with any signal that it worked. That is precisely the shape of work a coding agent does better than a script and better than a person following a list.
 
 ## Motivation and Background
 
@@ -49,13 +51,14 @@ What is missing is the connection between them and the user's own agent:
 * Nothing places the example agent configuration file where the user's agent will read it.
 * Nothing verifies the result. A user who configures everything correctly and a user who makes one typographical error see the same thing: nothing, for the fifteen to thirty seconds it takes data to appear, and then still nothing for the second user.
 * There is no uninstall path, so a user who wants to stop is left editing files by hand.
+* There is no single entry point that carries a user from a fresh clone to working telemetry. The steps exist and each is documented, but the user assembles them, and the assembly is where the sequence breaks.
 
 ### Current State Diagram
 
 ```mermaid
 flowchart TD
-    CLONE["User clones and starts the stack"] --> RUNNING["Stack running and verified"]
-    RUNNING --> GAP["Gap: no path from here to wired agent"]
+    CLONE["User clones the repository"] --> GAP["Gap: the user assembles every step alone"]
+    GAP --> M0["Checks the runtime, starts the stack, verifies it, all by hand"]
     GAP --> M1["Reads README, learns key names"]
     GAP --> M2["Edits settings by hand, per agent, per scope"]
     GAP --> M3["Misses the temporality key: metrics silently dropped"]
@@ -69,7 +72,9 @@ Ship the installation as an instruction the user's own agent executes.
 
 1. **One skill, several entry points.** The instruction lives once, as a skill at `skills/observability-install/SKILL.md`, written prompt-first: it describes what to achieve and the rules that govern how, and it calls the repository's scripts for every step that must be deterministic. Thin entry points route to it without duplicating it: a Claude Code slash command at `.claude/commands/observability-install.md`, a pi prompt template shipped in the same package layout pi expects, and a documented plain sentence for any other agent, so a user with a third agent is not excluded.
 
-2. **The agent works out the situation before proposing anything.** The instruction directs the agent to determine which agent it is, whether it is being asked to configure the current project or the whole machine, whether the stack is running, whether a settings file already exists, and whether telemetry is already configured, possibly pointing somewhere else. Only then does it propose a plan. This is the part that cannot be a script, and it is the reason this is an instruction rather than an installer.
+2. **The agent works out the situation before proposing anything.** The instruction directs the agent to determine whether a container runtime is installed and answering, which agent it is, whether it is being asked to configure the current project or the whole machine, whether the stack is running, whether a settings file already exists, and whether telemetry is already configured, possibly pointing somewhere else. Only then does it propose a plan. This is the part that cannot be a script, and it is the reason this is an instruction rather than an installer.
+
+   Because this is the primary path, the situation it must handle starts earlier than a wiring step would: the stack may never have been started, and the images may never have been pulled. When the stack is not running the agent offers to start it, asks, and then starts it by calling the repository's start script rather than an improvised command. It then verifies the stack with the repository's verification script before it configures anything, so an agent is never wired to a stack that is not working. A missing container runtime stops the path before any plan is proposed, with the fix named rather than a raw runtime error shown.
 
 3. **A plan, then consent, then changes.** Before writing anything the agent presents: the exact files it will change, the exact keys it will add or modify, any existing value it will replace, and the privacy consequence of each choice. Content logging is presented as a separate, explicit decision with its consequence stated, and it defaults to off if the user does not choose it. The agent asks once, with a plan the user can accept whole, rather than asking eleven times.
 
@@ -89,10 +94,14 @@ Ship the installation as an instruction the user's own agent executes.
 
 ```mermaid
 flowchart TD
-    USER["User runs the slash command or pastes the sentence"] --> SKILL["skills/observability-install"]
-    SKILL --> DETECT["Detect: which agent, which scope, stack running, existing configuration"]
+    USER["User clones, then runs the slash command or pastes the sentence"] --> SKILL["skills/observability-install"]
+    SKILL --> PRE{"Container runtime present?"}
+    PRE -->|"no"| NAMEFIX["Stop, name the missing prerequisite and its fix"]
+    PRE -->|"yes"| DETECT["Detect: which agent, which scope, stack running, existing configuration"]
     DETECT --> STACKCHECK{"Stack running?"}
-    STACKCHECK -->|"no"| OFFER["Offer to start it, ask first"]
+    STACKCHECK -->|"no"| OFFER["Offer to start it, ask first, then call the start script"]
+    OFFER --> VERIFYSTACK["Verify the stack with the verification script"]
+    VERIFYSTACK --> PLAN
     OFFER --> PLAN
     STACKCHECK -->|"yes"| PLAN["Present plan: files, keys, replacements, privacy consequences"]
     PLAN --> CONSENT{"User accepts?"}
@@ -114,37 +123,46 @@ flowchart TD
 2. The repository **MUST** contain a Claude Code slash command that invokes that skill without duplicating its content.
 3. The repository **MUST** contain a pi entry point that invokes the same instruction without duplicating its content.
 4. The README **MUST** document a plain sentence a user can paste into any other capable agent to achieve the same result.
-5. The instruction **MUST** direct the agent to determine which agent it is, the configuration scope, whether the stack is running, and whether telemetry is already configured, before proposing any change.
-6. The instruction **MUST** require the agent to present a plan naming every file it will change, every key it will add or modify, and every existing value it will replace, before making any change.
-7. The instruction **MUST** require explicit user consent before any change is written.
-8. The instruction **MUST** treat content logging as a separate explicit choice, **MUST** state its consequence, and **MUST** default it to off when the user does not choose it.
-9. The instruction **MUST** require the agent to back up any settings file before writing to it, to validate the file afterwards, and to restore the backup if validation fails.
-10. The instruction **MUST** require the agent to merge into an existing settings file rather than replace it.
-11. The instruction **MUST** require that the Claude Code configuration includes the metrics temporality key without which all metrics are rejected.
-12. The instruction **MUST** require that the export address is derived from the configured port rather than written as a literal.
-13. The instruction **MUST** cover pi by installing the published package by its registry specifier, setting the master switch, and arranging the shared flag file.
-14. The instruction **MUST** place the example agent configuration for the Grafana tools at the chosen scope.
-15. The instruction **MUST** offer conversation tracing rather than enabling it, and when accepted **MUST** call the repository's existing enable script rather than reimplementing it.
-16. The instruction **MUST** offer git provenance stamping and explain its mechanism.
-17. The instruction **MUST** require the agent to verify the installation by producing one non-interactive turn and querying the stack for the resulting metric, log, and trace.
-18. The instruction **MUST** forbid reporting success before data has been observed in the stack.
-19. The instruction **MUST** contain a fixed diagnostic list naming each cause of missing data and its fix, and **MUST** require the agent to work that list rather than guess.
-20. The instruction **MUST** require a closing report naming what changed, where, how to see the data, and links generated by the repository's link script.
-21. Running the installation a second time **MUST** make no change and **MUST** say so.
-22. The repository **MUST** provide an uninstall path that removes exactly what the installation added, restores any replaced value, and verifies that the agent no longer exports.
-23. The instruction **MUST** forbid changing any file not named in the accepted plan.
-24. The instruction **MUST** require the agent to ask before starting or stopping the stack.
-25. Every deterministic step **MUST** be performed by calling a repository script where one exists, rather than by the agent improvising an equivalent.
+5. This path **MUST** take a machine from a fresh clone to verified working telemetry, and **MUST NOT** assume the stack is already running.
+6. The instruction **MUST** check the prerequisites before proposing a plan, at least that a container runtime is installed and answering, and **MUST** name the fix when one is absent rather than failing on a raw runtime error.
+7. The instruction **MUST** offer to start the stack when it is not running, **MUST** start it by calling the repository's start script rather than an improvised command, and **MUST** ask before starting it.
+8. The instruction **MUST** verify the stack by calling the repository's stack verification script before it configures any agent, so that an agent is never configured against a stack that is not working.
+9. The README **MUST** present this path as the primary and recommended way to install, and **MUST** place it before the manual command sequence.
+10. The README **MUST** retain the manual command sequence as a documented alternative, and **MUST** state who it is for, namely a user with no coding agent or with a policy against letting one change their configuration.
+11. The instruction **MUST** name the equivalent manual command whenever it cannot complete a step, so that a user is never left without a way forward.
+12. The instruction **MUST** direct the agent to determine which agent it is, the configuration scope, whether the stack is running, and whether telemetry is already configured, before proposing any change.
+13. The instruction **MUST** require the agent to present a plan naming every file it will change, every key it will add or modify, and every existing value it will replace, before making any change.
+14. The instruction **MUST** require explicit user consent before any change is written.
+15. The instruction **MUST** treat content logging as a separate explicit choice, **MUST** state its consequence, and **MUST** default it to off when the user does not choose it.
+16. The instruction **MUST** require the agent to back up any settings file before writing to it, to validate the file afterwards, and to restore the backup if validation fails.
+17. The instruction **MUST** require the agent to merge into an existing settings file rather than replace it.
+18. The instruction **MUST** require that the Claude Code configuration includes the metrics temporality key without which all metrics are rejected.
+19. The instruction **MUST** require that the export address is derived from the configured port rather than written as a literal.
+20. The instruction **MUST** cover pi by installing the published package by its registry specifier, setting the master switch, and arranging the shared flag file.
+21. The instruction **MUST** place the example agent configuration for the Grafana tools at the chosen scope.
+22. The instruction **MUST** offer conversation tracing rather than enabling it, and when accepted **MUST** call the repository's existing enable script rather than reimplementing it.
+23. The instruction **MUST** offer git provenance stamping and explain its mechanism.
+24. The instruction **MUST** require the agent to verify the installation by producing one non-interactive turn and querying the stack for the resulting metric, log, and trace.
+25. The instruction **MUST** forbid reporting success before data has been observed in the stack.
+26. The instruction **MUST** contain a fixed diagnostic list naming each cause of missing data and its fix, and **MUST** require the agent to work that list rather than guess.
+27. The instruction **MUST** require a closing report naming what changed, where, how to see the data, and links generated by the repository's link script.
+28. Running the installation a second time **MUST** make no change and **MUST** say so.
+29. The repository **MUST** provide an uninstall path that removes exactly what the installation added, restores any replaced value, and verifies that the agent no longer exports.
+30. The instruction **MUST** forbid changing any file not named in the accepted plan.
+31. The instruction **MUST** require the agent to ask before starting or stopping the stack.
+32. Every deterministic step **MUST** be performed by calling a repository script where one exists, rather than by the agent improvising an equivalent.
 
 ### Non-Functional Requirements
 
 1. A first-time user **MUST** reach verified, working telemetry through this path without reading any documentation beyond the one command that starts it.
-2. The whole path **MUST** complete within 5 minutes on a machine with the stack already running, including the verification wait.
-3. The instruction **MUST** be readable and reviewable by a person, because a user is being asked to let it change their settings.
-4. The path **MUST** work when no settings file exists and when a settings file already exists with unrelated content.
-5. The path **MUST** work for a project scope and for a machine-wide scope.
-6. The path **MUST NOT** require any credential, token, or account.
-7. The instruction **MUST NOT** depend on any specific agent's private behaviour beyond what its public documentation states.
+2. The whole path **MUST** complete within 5 minutes on a machine with the stack already running, and within 15 minutes on a machine that has never pulled the images, including the verification wait.
+3. This path **MUST** be usable directly from a fresh clone with no prior installation step, because the entry points ship in the repository and are available to an agent opened in the clone.
+4. This path **MUST NOT** be the only way to install: every step it performs **MUST** have a documented manual equivalent, so the project stays usable without an agent.
+5. The instruction **MUST** be readable and reviewable by a person, because a user is being asked to let it change their settings.
+6. The path **MUST** work when no settings file exists and when a settings file already exists with unrelated content.
+7. The path **MUST** work for a project scope and for a machine-wide scope.
+8. The path **MUST NOT** require any credential, token, or account.
+9. The instruction **MUST NOT** depend on any specific agent's private behaviour beyond what its public documentation states.
 
 ## Affected Components
 
@@ -160,6 +178,8 @@ flowchart TD
 ### In Scope
 
 * One skill holding the installation instruction, with thin entry points for Claude Code and pi and a documented sentence for other agents.
+* The whole journey from a fresh clone: prerequisite checks, starting the stack after asking, verifying the stack, then configuring the agent.
+* The README ordering that makes this the primary path and the manual command sequence the documented alternative.
 * Detection, planning, consent, configuration, optional steps, verification, diagnosis, and reporting.
 * Idempotence and an uninstall path.
 * The end-to-end verification script the instruction calls.
@@ -168,7 +188,8 @@ flowchart TD
 ### Out of Scope ("Here, But Not Further")
 
 * Configuring any agent other than Claude Code and pi. The plain-sentence path exists for others, but no agent-specific handling is written for them.
-* Installing Docker, cloning the repository, or starting the stack without asking.
+* Installing a container runtime, and cloning the repository. The path checks for the runtime and names the fix; it does not install it. Starting the stack is in scope, but only after asking.
+* Removing or deprecating the manual path. It stays documented and supported, and every step of this path keeps a manual equivalent.
 * Changing the stack itself. This path configures agents to use the stack, never the other way round.
 * Reimplementing anything the deterministic scripts already do.
 * A graphical or web-based installer.
@@ -257,6 +278,8 @@ The deliverable is an instruction executed by a model, so the top test layer is 
 | `scripts/agent.verify.sh` | `signals_arrive_for_agent` | Produces one turn and asserts metric, log, and trace arrival | Agent name | Exit 0; three signals reported present |
 | `scripts/agent.verify.sh` | `names_cause_when_missing` | Asserts an actionable cause list when a signal is missing | Misconfigured agent | Non-zero exit; causes named |
 | `scripts/agent.verify.sh` | `uses_configured_port` | Asserts queries use the configured port | Non-default port | Exit 0 |
+| `scenarios/install-fresh-clone` | `fresh clone, stack never started` | The primary path end to end: prerequisite check, start, verify, configure, verify again | Fresh clone, stack never started, images never pulled | Stack started after asking; telemetry configured and observed; success reported only after data |
+| `scenarios/install-no-runtime` | `container runtime absent` | The path on a machine with no container runtime | No runtime installed | Stops before any plan; names the prerequisite and its fix |
 | `scenarios/install-fresh-claude-code` | `fresh install, no settings file` | Full path on a machine with no existing settings | Clean environment | Telemetry configured and observed; success reported only after data |
 | `scenarios/install-existing-settings` | `merge into existing settings` | Full path where a settings file exists with unrelated content | Populated settings file | Unrelated content preserved; telemetry keys added |
 | `scenarios/install-conflicting-endpoint` | `existing telemetry pointing elsewhere` | Full path where telemetry is already configured to another address | Conflicting settings | Existing value shown and user asked; nothing replaced without consent |
@@ -278,17 +301,41 @@ Not applicable.
 
 ## Acceptance Criteria
 
-### AC-1: One command installs and verifies (covers FR1, FR2, FR17, NFR1, NFR2)
+### AC-1: One command takes a fresh clone to verified telemetry (covers FR1, FR2, FR5, FR6, FR7, FR8, FR24, NFR1, NFR2, NFR3)
 
 ```gherkin
-Given a machine with the stack running and an unconfigured Claude Code
+Given a machine with a container runtime installed, a fresh clone, the stack never started, and an unconfigured Claude Code
 When the user runs the slash command and accepts the plan
-Then telemetry is configured
+Then the agent checks the prerequisites
+  And it asks before starting the stack, then starts it by calling the repository's start script
+  And it verifies the stack by calling the repository's verification script before configuring anything
+  And telemetry is configured
   And one turn is produced and its metric, log, and trace are observed in the stack
-  And the whole path completes within 5 minutes
+  And the whole path completes within 15 minutes on a machine that has never pulled the images
 ```
 
-### AC-2: Nothing changes before consent (covers FR6, FR7, FR23)
+### AC-2: The prerequisite failure is actionable, not raw (covers FR6)
+
+```gherkin
+Given a machine with no container runtime installed
+When the user runs the slash command
+Then the agent stops before proposing any change
+  And it names the missing prerequisite and how to install it
+  And no raw container runtime error is the only thing the user sees
+```
+
+### AC-3: The README leads with this path and keeps the alternative (covers FR9, FR10, FR11, NFR4)
+
+```gherkin
+Given the README
+When a reader looks for how to install
+Then the agent-driven path appears first and is described as the recommended way
+  And the manual command sequence appears after it as the documented alternative
+  And the README states who the alternative is for
+  And every step the agent-driven path performs has a manual equivalent somewhere in the documentation
+```
+
+### AC-4: Nothing changes before consent (covers FR13, FR14, FR30)
 
 ```gherkin
 Given the installation path is running
@@ -298,7 +345,7 @@ Then no file has been changed yet
   And when the user declines, zero files are changed
 ```
 
-### AC-3: Content logging is a separate, defaulted-off choice (covers FR8)
+### AC-5: Content logging is a separate, defaulted-off choice (covers FR15)
 
 ```gherkin
 Given the installation path is running
@@ -308,7 +355,7 @@ Then the consequence of enabling it is stated
   And no content flag is written without an explicit choice
 ```
 
-### AC-4: Existing settings survive (covers FR9, FR10, NFR4)
+### AC-6: Existing settings survive (covers FR16, FR17, NFR6)
 
 ```gherkin
 Given a settings file containing unrelated content
@@ -319,7 +366,7 @@ Then the unrelated content is unchanged
   And if validation had failed, the backup would have been restored
 ```
 
-### AC-5: A conflicting existing value is surfaced, not overwritten (covers FR6, FR23)
+### AC-7: A conflicting existing value is surfaced, not overwritten (covers FR13, FR30)
 
 ```gherkin
 Given telemetry is already configured to a different address
@@ -328,7 +375,7 @@ Then the existing value is shown to the user
   And the user is asked before it is replaced
 ```
 
-### AC-6: The metrics temporality key is always set (covers FR11)
+### AC-8: The metrics temporality key is always set (covers FR18)
 
 ```gherkin
 Given Claude Code has been configured by this path
@@ -337,7 +384,7 @@ Then the metrics temporality key is present with the value the metrics store acc
   And metric queries return data after one turn
 ```
 
-### AC-7: The configured port is honoured (covers FR12)
+### AC-9: The configured port is honoured (covers FR19)
 
 ```gherkin
 Given the stack is configured with a non-default published port
@@ -345,7 +392,7 @@ When the installation path configures an agent
 Then the export address and every verification query use that port
 ```
 
-### AC-8: pi is installed from the registry and verified (covers FR13)
+### AC-10: pi is installed from the registry and verified (covers FR20)
 
 ```gherkin
 Given a machine with pi installed and no telemetry extension
@@ -354,7 +401,7 @@ Then the published package is installed by its registry specifier
   And after one turn, pi metrics, log events, and traces are observed in the stack
 ```
 
-### AC-9: Optional steps are offered, not assumed (covers FR15, FR16, FR24)
+### AC-11: Optional steps are offered, not assumed (covers FR22, FR23, FR31)
 
 ```gherkin
 Given the installation path is running
@@ -364,7 +411,7 @@ Then each is offered with its consequence stated
   And the stack is never started or stopped without asking
 ```
 
-### AC-10: Success is never claimed without data (covers FR18, FR19)
+### AC-12: Success is never claimed without data (covers FR25, FR26)
 
 ```gherkin
 Given a configuration that will not produce data, such as a stopped stack
@@ -373,7 +420,7 @@ Then it does not report success
   And it names the cause from its diagnostic list and states the fix
 ```
 
-### AC-11: The report is actionable (covers FR20)
+### AC-13: The report is actionable (covers FR27)
 
 ```gherkin
 Given a successful installation
@@ -383,7 +430,7 @@ Then it names what changed and where
   And those links were generated by the repository's link script
 ```
 
-### AC-12: The path is idempotent (covers FR21)
+### AC-14: The path is idempotent (covers FR28)
 
 ```gherkin
 Given a machine already configured by this path
@@ -392,7 +439,7 @@ Then no file is changed
   And the agent states that the configuration is already in place
 ```
 
-### AC-13: Uninstall reverses installation (covers FR22)
+### AC-15: Uninstall reverses installation (covers FR29)
 
 ```gherkin
 Given a machine configured by this path
@@ -402,7 +449,7 @@ Then every key the installation added is removed
   And a subsequent turn produces no export
 ```
 
-### AC-14: Deterministic steps use the existing scripts (covers FR25)
+### AC-16: Deterministic steps use the existing scripts (covers FR32)
 
 ```gherkin
 Given the installation instruction
@@ -411,7 +458,7 @@ Then every step that a repository script already performs is delegated to that s
   And no step reimplements one
 ```
 
-### AC-15: The instruction is reviewable (covers NFR3, NFR7)
+### AC-17: The instruction is reviewable (covers NFR5, NFR9)
 
 ```gherkin
 Given a user who wants to know what will happen before running the path
