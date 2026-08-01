@@ -1,0 +1,211 @@
+// stack/alloy/config.alloy
+//
+// @agents-index Grafana Alloy OTLP receiver and per-signal router for the local
+// observability stack: accepts OTLP on gRPC 4317 and HTTP 4318 and fans metrics
+// to Mimir, logs to Loki, and traces to Tempo.
+//
+// Purpose: Alloy is the single OTLP ingress for both Claude Code (gRPC 4317) and
+// pi (HTTP 4318). A shared batch processor buffers each signal before export.
+// Backends are addressed by compose service name on the shared `otel` bridge
+// network. Host OTLP exposure (127.0.0.1 only) is configured in compose.yaml
+// through the edge proxy; the receiver here binds 0.0.0.0 inside the container
+// so the published loopback mapping reaches it.
+
+// OTLP receiver: dual transport so gRPC and HTTP clients share one collector.
+// Each signal is forwarded to its own batch processor.
+otelcol.receiver.otlp "default" {
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		metrics = [otelcol.processor.batch.default.input]
+		logs    = [otelcol.processor.transform.readable_log_lines.input]
+		traces  = [otelcol.processor.batch.default.input]
+	}
+}
+
+// Readable log lines: Claude Code emits OTLP log records whose body is the
+// event name (e.g. "claude_code.assistant_response") with the content in
+// record attributes. Loki renders body as the log line, which makes the raw
+// view unscannable. Rewrite the body per event type so the line carries the
+// content, prefixed with the short event name; all original attributes remain
+// in Loki structured metadata, so nothing is lost for filtering. Unmatched
+// event types keep their original body (conditions match on the incoming
+// body, so at most one statement rewrites each record).
+otelcol.processor.transform "readable_log_lines" {
+	error_mode = "ignore"
+
+	log_statements {
+		context = "log"
+		statements = [
+			"set(body, Concat([\"[user_prompt] \", attributes[\"prompt\"]], \"\")) where body == \"claude_code.user_prompt\" and attributes[\"prompt\"] != nil",
+			"set(body, Concat([\"[assistant_response] \", attributes[\"response\"]], \"\")) where body == \"claude_code.assistant_response\" and attributes[\"response\"] != nil",
+			"set(body, Concat([\"[api_request] model=\", attributes[\"model\"], \" in=\", attributes[\"input_tokens\"], \" out=\", attributes[\"output_tokens\"], \" cost_usd=\", attributes[\"cost_usd\"], \" duration_ms=\", attributes[\"duration_ms\"]], \"\")) where body == \"claude_code.api_request\"",
+			// Operational events: render a key=value digest of the salient
+			// fields (full detail stays in structured metadata).
+			"set(body, Concat([\"[tool_decision] tool=\", attributes[\"tool_name\"], \" decision=\", attributes[\"decision\"], \" source=\", attributes[\"source\"]], \"\")) where body == \"claude_code.tool_decision\" and attributes[\"tool_name\"] != nil",
+			"set(body, Concat([\"[tool_decision] tool=\", attributes[\"tool.name\"], \" decision=\", attributes[\"decision\"], \" source=\", attributes[\"source\"]], \"\")) where body == \"claude_code.tool_decision\" and attributes[\"tool.name\"] != nil",
+			"set(body, Concat([\"[tool_result] tool=\", attributes[\"tool_name\"], \" success=\", attributes[\"success\"], \" duration_ms=\", attributes[\"duration_ms\"]], \"\")) where body == \"claude_code.tool_result\" and attributes[\"tool_name\"] != nil",
+			"set(body, Concat([\"[tool_result] tool=\", attributes[\"tool.name\"], \" success=\", attributes[\"success\"], \" duration_ms=\", attributes[\"duration_ms\"]], \"\")) where body == \"claude_code.tool_result\" and attributes[\"tool.name\"] != nil",
+			"set(body, Concat([\"[skill_activated] skill=\", attributes[\"skill_name\"], \" source=\", attributes[\"skill_source\"], \" trigger=\", attributes[\"invocation_trigger\"]], \"\")) where body == \"claude_code.skill_activated\" and attributes[\"skill_name\"] != nil",
+			"set(body, Concat([\"[skill_activated] skill=\", attributes[\"skill.name\"], \" source=\", attributes[\"skill.source\"], \" trigger=\", attributes[\"invocation.trigger\"]], \"\")) where body == \"claude_code.skill_activated\" and attributes[\"skill.name\"] != nil",
+			// plugin_loaded attribute keys are dotted (plugin.name) unlike the
+			// other events' underscore keys; guard both spellings, dotted first.
+			"set(body, Concat([\"[plugin_loaded] plugin=\", attributes[\"plugin.name\"], \" version=\", attributes[\"plugin.version\"]], \"\")) where body == \"claude_code.plugin_loaded\" and attributes[\"plugin.name\"] != nil",
+			"set(body, Concat([\"[plugin_loaded] plugin=\", attributes[\"plugin_name\"], \" version=\", attributes[\"plugin_version\"]], \"\")) where body == \"claude_code.plugin_loaded\" and attributes[\"plugin_name\"] != nil",
+			// pi.* events: the pi-opentelemetry extension emits the same event
+			// shape as Claude Code under the pi.* namespace with underscore
+			// attribute keys. Rewrite each body for readable-log-line parity;
+			// unmatched pi bodies keep their original body and all attributes
+			// remain in Loki structured metadata.
+			"set(body, Concat([\"[user_prompt] \", attributes[\"prompt\"]], \"\")) where body == \"pi.user_prompt\" and attributes[\"prompt\"] != nil",
+			"set(body, Concat([\"[assistant_response] \", attributes[\"response\"]], \"\")) where body == \"pi.assistant_response\" and attributes[\"response\"] != nil",
+			// pi.api_request carries no duration_ms (unlike claude_code's);
+			// digest only the fields the extension actually emits.
+			"set(body, Concat([\"[api_request] model=\", attributes[\"model\"], \" in=\", attributes[\"input_tokens\"], \" out=\", attributes[\"output_tokens\"], \" cost_usd=\", attributes[\"cost_usd\"]], \"\")) where body == \"pi.api_request\"",
+			"set(body, Concat([\"[api_refusal] model=\", attributes[\"model\"], \" finish_reason=\", attributes[\"finish_reason\"]], \"\")) where body == \"pi.api_refusal\"",
+			"set(body, Concat([\"[api_error] model=\", attributes[\"model\"], \" status_code=\", attributes[\"status_code\"], \" error=\", attributes[\"error\"], \" duration_ms=\", attributes[\"duration_ms\"]], \"\")) where body == \"pi.api_error\"",
+			// tool_decision sometimes arrives with only tool_name; full digest
+			// first, tool-only fallback second (first rewrite changes body, so
+			// at most one fires).
+			"set(body, Concat([\"[tool_decision] tool=\", attributes[\"tool_name\"], \" decision=\", attributes[\"decision\"], \" source=\", attributes[\"source\"]], \"\")) where body == \"pi.tool_decision\" and attributes[\"decision\"] != nil",
+			"set(body, Concat([\"[tool_decision] tool=\", attributes[\"tool_name\"]], \"\")) where body == \"pi.tool_decision\" and attributes[\"tool_name\"] != nil",
+			"set(body, Concat([\"[tool_result] tool=\", attributes[\"tool_name\"], \" success=\", attributes[\"success\"], \" input_size=\", attributes[\"input_size\"]], \"\")) where body == \"pi.tool_result\" and attributes[\"tool_name\"] != nil",
+			// Content-carrying raw-body events (OTEL_LOG_RAW_API_BODIES) and
+			// fallbacks so no pi event ever renders as a bare event name.
+			"set(body, Concat([\"[api_request_body] model=\", attributes[\"model\"], \" body=\", attributes[\"body\"]], \"\")) where body == \"pi.api_request_body\" and attributes[\"body\"] != nil",
+			"set(body, \"[api_request_body] (no body attribute)\") where body == \"pi.api_request_body\"",
+			"set(body, Concat([\"[api_response_body] model=\", attributes[\"model\"], \" body=\", attributes[\"body\"]], \"\")) where body == \"pi.api_response_body\" and attributes[\"body\"] != nil",
+			"set(body, \"[api_response_body] (no body attribute)\") where body == \"pi.api_response_body\"",
+			"set(body, Concat([\"[assistant_response] model=\", attributes[\"model\"], \" (no content)\"], \"\")) where body == \"pi.assistant_response\"",
+			"set(body, \"[user_prompt] (content logging off)\") where body == \"pi.user_prompt\"",
+			"set(body, Concat([\"[compaction] trigger=\", attributes[\"trigger\"], \" success=\", attributes[\"success\"], \" pre_tokens=\", attributes[\"pre_tokens\"], \" post_tokens=\", attributes[\"post_tokens\"]], \"\")) where body == \"pi.compaction\"",
+		]
+	}
+
+	output {
+		logs = [otelcol.processor.batch.default.input]
+	}
+}
+
+// Batch processor: coalesce spans, metrics, and log records into batches to
+// reduce export overhead. Uses the default ~200ms flush timeout, which is small
+// relative to the client export intervals (1s), so Alloy adds negligible latency
+// on top of the agents' shipping cadence rather than stacking a second delay.
+otelcol.processor.batch "default" {
+	output {
+		metrics = [otelcol.exporter.otlphttp.mimir.input]
+		logs    = [otelcol.exporter.otlphttp.loki.input]
+		traces  = [otelcol.exporter.otlp.tempo.input]
+	}
+}
+
+// Metrics to Mimir over OTLP/HTTP. The exporter appends /v1/metrics to the
+// endpoint, matching Mimir's native OTLP ingest path (/otlp/v1/metrics).
+otelcol.exporter.otlphttp "mimir" {
+	client {
+		endpoint = "http://mimir:9009/otlp"
+	}
+}
+
+// Logs to Loki over OTLP/HTTP. The exporter appends /v1/logs, matching Loki's
+// native OTLP ingest path (/otlp/v1/logs).
+otelcol.exporter.otlphttp "loki" {
+	client {
+		endpoint = "http://loki:3100/otlp"
+	}
+}
+
+// Traces to Tempo over OTLP/gRPC on the in-network receiver (tempo:4317).
+// TLS is disabled because traffic stays on the local bridge network.
+otelcol.exporter.otlp "tempo" {
+	client {
+		endpoint = "tempo:4317"
+
+		tls {
+			insecure = true
+		}
+	}
+}
+
+// -----------------------------------------------------------------------------
+// HAProxy edge-proxy telemetry: make the ingress itself observable. Metrics are
+// pulled from HAProxy's built-in Prometheus exporter and pushed into Mimir;
+// HAProxy's access/error logs arrive by syslog and are forwarded into Loki. Both
+// paths land in the same stores as the agent telemetry, and the exporter and
+// syslog listeners are reachable only over the otel network (never published to
+// the host).
+// -----------------------------------------------------------------------------
+
+// Scrape HAProxy's internal-only Prometheus exporter (frontend prometheus_exporter
+// on haproxy:8405, /metrics). Pull is chosen over push because the exporter is
+// built in and prometheus.scrape is idiomatic Alloy with no sidecar. The exporter
+// port is not published to the host.
+prometheus.scrape "haproxy" {
+	targets = [{
+		__address__ = "haproxy:8405",
+		job         = "haproxy",
+	}]
+	metrics_path    = "/metrics"
+	scrape_interval = "15s"
+	forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+// Scrape MLflow's server Prometheus exporter (activated by `mlflow server
+// --expose-prometheus`, /metrics on mlflow:5000). The exporter package
+// (prometheus-flask-exporter) is baked into the service's thin image, so
+// /metrics is live at container start with no install step. The endpoint is
+// registered at the container root, not under MLflow's --static-prefix=/mlflow,
+// so the scrape targets mlflow:5000/metrics directly. Like the haproxy scrape,
+// this pull stays on the internal otel network and publishes no host port; the
+// mlflow_* series remote-write into the same Mimir store as the agent metrics.
+prometheus.scrape "mlflow" {
+	targets = [{
+		__address__ = "mlflow:5000",
+		job         = "mlflow",
+	}]
+	metrics_path    = "/metrics"
+	scrape_interval = "15s"
+	forward_to      = [prometheus.remote_write.mimir.receiver]
+}
+
+// Remote-write the scraped haproxy_* and mlflow_* series into Mimir's Prometheus
+// push endpoint, so they are queryable in the same Mimir store as the agent
+// metrics.
+prometheus.remote_write "mimir" {
+	endpoint {
+		url = "http://mimir:9009/api/v1/push"
+	}
+}
+
+// Receive HAProxy's syslog stream (RFC5424 over UDP) on an internal-only port
+// not published to the host. HAProxy logs by syslog to this listener rather than
+// to Loki directly, keeping every signal routed through Alloy. Structured-data
+// and message content become the Loki log line.
+loki.source.syslog "haproxy" {
+	listener {
+		address       = "0.0.0.0:1514"
+		protocol      = "udp"
+		syslog_format = "rfc5424"
+		labels        = {
+			job     = "haproxy",
+			service = "haproxy-edge",
+		}
+	}
+	forward_to = [loki.write.haproxy.receiver]
+}
+
+// Loki write path for the HAProxy syslog stream: push into Loki's native
+// log-ingest API. HAProxy's log-format already emits human-readable, greppable,
+// one-event-per-line records (see haproxy.cfg), consistent with the
+// readable_log_lines convention above, so the Loki view stays scannable.
+loki.write "haproxy" {
+	endpoint {
+		url = "http://loki:3100/loki/api/v1/push"
+	}
+}

@@ -1,0 +1,241 @@
+# compose.yaml
+#
+# @agents-index Root compose file for the local coding-agent observability stack:
+# seven services (Loki, Mimir, Tempo, Alloy, Grafana, HAProxy, MLflow) behind one
+# loopback edge port, persisting Claude Code and pi telemetry on a developer machine.
+#
+# Purpose: stand up the whole stack with one `docker compose up -d`. Loki stores
+# logs, Mimir stores metrics, Tempo stores traces. Alloy receives OTLP and routes
+# each signal to its store. Grafana visualizes the three stores. HAProxy is the
+# single edge proxy and the only service that publishes a host port. MLflow is the
+# tracking server. Image tags are pinned (never `latest`) so the stack is
+# reproducible.
+#
+# Why a shared user-defined bridge network: services reference each other by
+# service name (DNS) and the network isolates the stack from other compose
+# projects on the host.
+#
+# A distinct project name keeps this stack's containers and volumes from
+# colliding with any other observability stack on the same machine.
+
+name: agent-observability
+
+networks:
+  # Shared user-defined bridge so services resolve each other by name and the
+  # stack is isolated from other compose projects.
+  otel:
+    driver: bridge
+
+volumes:
+  # Named volumes keep telemetry across container recreation.
+  loki-data:
+  mimir-data:
+  tempo-data:
+  alloy-data:
+  grafana-data:
+  # MLflow backend store (SQLite) and served filesystem artifacts, both under
+  # /mlflow so experiments, runs, params, metrics, registered models, and
+  # artifacts survive `docker compose down`/`up`.
+  mlflow-data:
+
+services:
+  # Loki: single-binary log store with filesystem object storage and native
+  # OTLP log ingestion. Query API on 3100.
+  loki:
+    image: grafana/loki:3.7.3
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./stack/loki/config.yaml:/etc/loki/config.yaml:ro
+      - loki-data:/loki
+    networks:
+      - otel
+    # No container healthcheck: the loki 3.7.x image is distroless (no shell,
+    # no wget), so an exec-based check cannot run. Readiness is verified from
+    # the host via the edge proxy at /loki/ready (see README).
+
+  # Mimir: monolithic-mode metrics store with filesystem blocks storage and
+  # native OTLP metric ingestion. Prometheus-compatible query API on 9009.
+  mimir:
+    image: grafana/mimir:3.1.2
+    command: ["-config.file=/etc/mimir/config.yaml"]
+    volumes:
+      - ./stack/mimir/config.yaml:/etc/mimir/config.yaml:ro
+      - mimir-data:/data
+    networks:
+      - otel
+    # No container healthcheck: the mimir image is distroless (no shell, no
+    # wget), so an exec-based check cannot run. Readiness is verified from the
+    # host via the edge proxy at /prometheus/ready (see README).
+
+  # Tempo: trace store with local filesystem backend and an OTLP receiver on
+  # 4317 (gRPC). Query/search API on 3200.
+  tempo:
+    image: grafana/tempo:3.0.2
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    volumes:
+      - ./stack/tempo/config.yaml:/etc/tempo/config.yaml:ro
+      - tempo-data:/var/tempo
+    networks:
+      - otel
+    # No container healthcheck: the tempo 3.x image is distroless (no shell,
+    # no wget), so an exec-based check cannot run. Readiness is verified from
+    # the host via the edge proxy at /tempo/ready (see README).
+
+  # Alloy: OTLP receiver and per-signal router. Accepts OTLP from Claude Code
+  # (gRPC 4317) and pi (HTTP 4318) and fans metrics to Mimir, logs to Loki, and
+  # traces to Tempo. Host OTLP exposure is loopback only, through the edge proxy,
+  # so prompt and tool content is never exposed on external interfaces. UI on 12345.
+  alloy:
+    image: grafana/alloy:v1.17.1
+    command:
+      - run
+      - --server.http.listen-addr=0.0.0.0:12345
+      - --server.http.ui-path-prefix=/alloy/
+      - --storage.path=/var/lib/alloy/data
+      - /etc/alloy/config.alloy
+    volumes:
+      - ./stack/alloy/config.alloy:/etc/alloy/config.alloy:ro
+      - alloy-data:/var/lib/alloy/data
+    networks:
+      - otel
+    depends_on:
+      # Start-ordering only. Loki, Mimir, and Tempo images are distroless
+      # (no shell), so container healthchecks cannot run and service_healthy
+      # is not usable; backend readiness is verified from the host instead
+      # (see README). Alloy retries exports until backends accept.
+      loki:
+        condition: service_started
+      mimir:
+        condition: service_started
+      tempo:
+        condition: service_started
+    healthcheck:
+      # Alloy serves /-/ready once the pipeline is running. The v1.17 image
+      # ships bash but no wget/curl, so the check speaks HTTP over bash's
+      # /dev/tcp and asserts a 200 status line.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/12345 && printf 'GET /-/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # Grafana: visualization layer, pre-provisioned with Loki, Mimir, and Tempo
+  # datasources (no manual setup). Reachable on host port 3000.
+  grafana:
+    image: grafana/grafana:13.1.0
+    environment:
+      # Default admin credentials for the local-only stack; documented in the
+      # README. Anonymous access stays disabled.
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+    volumes:
+      - ./stack/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana-data:/var/lib/grafana
+    networks:
+      - otel
+    depends_on:
+      # Start-ordering only; see the alloy service for why backend readiness is
+      # not gated on the container healthcheck.
+      loki:
+        condition: service_started
+      mimir:
+        condition: service_started
+      tempo:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O- http://localhost:3000/api/health | grep -q ok || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  # HAProxy: the single edge proxy fronting the whole stack. It is the only
+  # service publishing a host port (127.0.0.1 only), collapsing the seven
+  # per-service mappings into one loopback surface. A single cleartext mode-http
+  # frontend accepts both HTTP/1.1 and prior-knowledge h2c gRPC and routes by
+  # content and path to the backends over the otel network. The published host
+  # port reads EDGE_PORT and defaults to 24317, so the stack starts with no .env
+  # present; the container frontend stays on 24317. Image pinned to the
+  # Debian-based official tag (never latest).
+  haproxy:
+    image: haproxy:3.4.2-trixie
+    volumes:
+      - ./stack/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
+    ports:
+      - "127.0.0.1:${EDGE_PORT:-24317}:24317"
+    networks:
+      - otel
+    depends_on:
+      # Start-ordering only; the backends are health-checked by HAProxy itself
+      # over the otel network via option httpchk once they are up.
+      loki:
+        condition: service_started
+      mimir:
+        condition: service_started
+      tempo:
+        condition: service_started
+      alloy:
+        condition: service_started
+      grafana:
+        condition: service_started
+    restart: unless-stopped
+    healthcheck:
+      # The haproxy:3.4-trixie Debian image ships bash but no curl/wget, so the
+      # check speaks HTTP over bash's /dev/tcp against the container frontend and
+      # asserts any status line (Grafana at root answers the default backend).
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/24317 && printf 'GET / HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q 'HTTP/1' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  # MLflow: self-hosted tracking server (experiment tracking, run/metric/param
+  # logging, model registry). Built from a thin committed image (the stack's
+  # first custom build) that bakes prometheus-flask-exporter onto the pinned
+  # official base so `--expose-prometheus` works with no container-start install.
+  # It publishes NO host port: it is reachable only over the otel network by
+  # service name mlflow:5000 and is fronted through the single HAProxy loopback
+  # port under /mlflow/, preserving the single-published-port invariant. The
+  # pinned base tag is set as `image:` so the pinned reference stays explicit
+  # even though the service builds locally.
+  mlflow:
+    build:
+      context: ./stack/mlflow
+    image: ghcr.io/mlflow/mlflow:v3.14.0
+    # Ensure the store and artifact subdirectories exist on the named volume,
+    # then exec the tracking server. Flags are source-verified against the
+    # v3.14.0 `mlflow server` CLI:
+    #   --host 0.0.0.0        bind all container interfaces so HAProxy reaches it
+    #   --backend-store-uri   SQLite (database-backed, required for the registry)
+    #   --serve-artifacts     server-proxied artifacts (single-door property)
+    #   --static-prefix       serve UI/REST/artifact/health under /mlflow
+    #   --expose-prometheus   activate /metrics (baked-in exporter) into a
+    #                         throwaway multiproc dir (runtime counters, not data)
+    command:
+      - bash
+      - -c
+      - >
+        mkdir -p /mlflow/store /mlflow/artifacts &&
+        exec mlflow server
+        --host 0.0.0.0 --port 5000
+        --backend-store-uri sqlite:////mlflow/store/mlflow.db
+        --serve-artifacts --artifacts-destination file:///mlflow/artifacts
+        --static-prefix=/mlflow
+        --expose-prometheus /tmp/mlflow-prometheus
+    volumes:
+      - mlflow-data:/mlflow
+    networks:
+      - otel
+    restart: unless-stopped
+    healthcheck:
+      # The mlflow v3.14.0 image (python:3.10) ships bash but no curl/wget, so
+      # the check speaks HTTP over bash's /dev/tcp against the server's own
+      # health endpoint. The path carries the --static-prefix (/mlflow/health)
+      # and the request sends `Host: localhost`, which MLflow's default
+      # host-validation middleware accepts, then asserts a 200 status line.
+      test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/5000 && printf 'GET /mlflow/health HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s

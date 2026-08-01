@@ -1,0 +1,38 @@
+# stack/grafana/provisioning/datasources/datasources.yaml
+#
+# @agents-index Grafana datasource provisioning for the local observability
+# stack: Loki, Mimir (Prometheus-compatible), and Tempo, wired by compose
+# service name.
+#
+# Purpose: pre-provision the three query backends so Grafana lists them healthy
+# on first start with no manual clicks. Datasources address backends by service
+# name on the shared `otel` network.
+
+apiVersion: 1
+
+datasources:
+  # Mimir speaks the Prometheus query API under /prometheus; typed as prometheus
+  # so PromQL and Explore work against stored OTLP metrics.
+  - name: Mimir
+    uid: mimir
+    type: prometheus
+    access: proxy
+    url: http://mimir:9009/prometheus
+    isDefault: true
+    jsonData:
+      httpMethod: POST
+      timeInterval: 10s
+
+  # Loki: OTLP-ingested log events, queried with LogQL.
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+
+  # Tempo: OTLP-ingested traces, queried with TraceQL via the search API on 3200.
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200

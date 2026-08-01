@@ -1,0 +1,39 @@
+# stack/tempo/config.yaml
+#
+# @agents-index Tempo configuration with an OTLP receiver and local filesystem
+# trace storage for the local observability stack.
+#
+# Purpose: Run Grafana Tempo as a single process that accepts traces over OTLP
+# gRPC (4317) and writes trace blocks and the WAL to the local tempo-data
+# volume. Alloy forwards spans here; the search/query API is on 3200. The
+# internal OTLP receiver listens inside the container network only; host OTLP
+# exposure is Alloy's job.
+
+server:
+  http_listen_port: 3200
+  grpc_listen_port: 9096
+  log_level: info
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        # Accept spans forwarded by Alloy over OTLP gRPC on the stack network.
+        grpc:
+          endpoint: 0.0.0.0:4317
+
+storage:
+  trace:
+    backend: local
+    local:
+      path: /var/tempo/blocks
+    wal:
+      path: /var/tempo/wal
+
+# Tempo 3.0 migration note: the `ingester:` and `compactor:` blocks from the
+# 2.x config were removed per the official 2.x -> 3.0 migration guide. In 3.0
+# the in-process live-store serves recent spans and flushes blocks, and the
+# backend scheduler/worker replace the compactor; monolithic mode needs no
+# Kafka and their defaults suit local dev. Block retention (previously
+# compactor.compaction.block_retention) now follows the overrides defaults;
+# retention tuning remains out of scope for this local stack.

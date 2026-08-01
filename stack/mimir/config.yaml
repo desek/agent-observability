@@ -1,0 +1,76 @@
+# stack/mimir/config.yaml
+#
+# @agents-index Monolithic Mimir configuration with filesystem blocks storage and
+# native OTLP metric ingestion for the local observability stack.
+#
+# Purpose: Run Grafana Mimir in monolithic mode (all components in one process)
+# writing TSDB blocks to the local mimir-data volume. Multitenancy is disabled
+# so the Prometheus-compatible query API on 9009 needs no tenant header. OTLP
+# metric ingestion is available at /otlp/v1/metrics on the HTTP listener, which
+# Alloy targets; querying uses /prometheus/api/v1/*.
+
+# Run every component in one process.
+target: all
+
+# Local dev single tenant: no X-Scope-OrgID required on read or write.
+multitenancy_enabled: false
+
+server:
+  http_listen_port: 9009
+  grpc_listen_port: 9095
+  log_level: info
+
+common:
+  storage:
+    backend: filesystem
+    filesystem:
+      dir: /data/common
+
+blocks_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/blocks
+  bucket_store:
+    sync_dir: /data/tsdb-sync
+  tsdb:
+    dir: /data/tsdb
+
+compactor:
+  data_dir: /data/compactor
+  sharding_ring:
+    kvstore:
+      store: inmemory
+
+ruler_storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/ruler
+
+# Single-instance rings for the ingester and distributor.
+ingester:
+  ring:
+    replication_factor: 1
+    kvstore:
+      store: inmemory
+
+store_gateway:
+  sharding_ring:
+    replication_factor: 1
+    kvstore:
+      store: inmemory
+
+limits:
+  # Accept OTLP resource attributes as target_info / labels and allow
+  # back-dated and future samples during local testing.
+  out_of_order_time_window: 1h
+  creation_grace_period: 10m
+  # Promote git provenance resource attributes (stamped by the repo's .envrc)
+  # onto every ingested series as git_org/git_repo/git_branch/git_path labels;
+  # without this they would only appear on target_info.
+  # Note: Mimir expects a comma-separated string here, not a YAML sequence.
+  promote_otel_resource_attributes: git.org,git.repo,git.branch,git.path
+  # Apply Prometheus metric-name suffixes (_total for counters, _bytes/_seconds
+  # for units) to OTLP metrics. Without this, Claude Code's `claude_code.session.count`
+  # sum lands as `claude_code_session_count`, not the Prometheus-normalized
+  # `claude_code_session_count_total` the verification queries use.
+  otel_metric_suffixes_enabled: true
