@@ -164,6 +164,11 @@ flowchart TD
 20. The Alloy configuration **MUST** retain the readable-log-line transform for both the `claude_code.*` and the `pi.*` event families, so that a log line in Grafana carries content rather than a bare event name.
 21. The Loki, Mimir, and Tempo configurations **MUST** retain promotion of the four git provenance attributes (`git.org`, `git.repo`, `git.branch`, `git.path`) to queryable labels.
 22. HAProxy **MUST** retain its self-telemetry: the internal Prometheus exporter scraped by Alloy into Mimir, and the syslog stream forwarded by Alloy into Loki.
+23. The repository **MUST** contain a `Makefile` at its root providing a single `ci` target that runs every check the project defines and exits non-zero if any of them fails.
+24. The `ci` target **MUST** run at least: compose file validation, HAProxy configuration validation inside the pinned image, a shell lint over every script, and every verification script the repository provides.
+25. The `Makefile` **MUST** provide the individual targets the `ci` target composes, so a contributor can run one check without running all of them.
+26. The `ci` target **MUST** be runnable on a machine where the stack is not running, by skipping the checks that need a running stack and reporting which ones were skipped rather than failing or silently passing.
+27. The README **MUST** name `make ci` as the single command that checks the repository.
 
 ### Non-Functional Requirements
 
@@ -180,7 +185,7 @@ flowchart TD
 * `stack/` configuration for Alloy, Grafana, HAProxy, Loki, Mimir, Tempo, and MLflow.
 * `agents/pi-otel.env` and `agents/direnvrc`, ported and re-scoped to this repository.
 * `scripts/stack.up.sh` and `scripts/stack.verify.sh`, new.
-* `README.md`, `LICENSE`, `.gitignore`, `.env.example`, new at the repository root.
+* `README.md`, `LICENSE`, `.gitignore`, `.env.example`, `Makefile`, new at the repository root.
 * `docs/cr/`, the governance record for this repository.
 
 ## Scope Boundaries
@@ -232,6 +237,8 @@ Cost is engineering time only. The benefit is that six further change requests b
 ### Phase 1: Repository scaffolding
 
 Create `LICENSE` (Apache-2.0), `.gitignore`, `.env.example`, and the directory skeleton (`stack/`, `agents/`, `scripts/`, `docs/cr/`). Add a README skeleton with the section headings this change requires, so later phases fill sections rather than inventing structure.
+
+Create the root `Makefile` with a `ci` target and the individual targets it composes. `ci` is the project's single check entry point: it validates the compose file, validates the HAProxy configuration inside the pinned image, lints every script, and runs every verification script the repository provides. Checks that need a running stack are skipped with a named report when the stack is down, so `ci` is honest on a machine that has not started it rather than failing or passing silently. Later change requests add their verification scripts to the same target rather than inventing a second entry point.
 
 ### Phase 2: Port the stack
 
@@ -414,7 +421,20 @@ When a user looks for licensing
 Then a LICENSE file containing the Apache License 2.0 is present
 ```
 
-### AC-14: Configuration stays self-describing (covers FR17)
+### AC-14: One command checks the repository (covers FR23, FR24, FR25, FR26, FR27)
+
+```gherkin
+Given a fresh clone with the stack running
+When the user runs "make ci"
+Then it validates the compose file, validates the HAProxy configuration, lints every script, and runs every verification script
+  And it exits 0 when all of them pass
+  And when one check is made to fail, it exits non-zero and names the failing check
+  And when the same command is run with the stack stopped
+  Then it skips the checks that need a running stack, names which were skipped, and does not report a pass for them
+  And the README names "make ci" as the command that checks the repository
+```
+
+### AC-15: Configuration stays self-describing (covers FR17)
 
 ```gherkin
 Given any configuration file under stack/ or agents/
@@ -458,6 +478,9 @@ Then its first comment block states the file's purpose
 ### Verification Commands
 
 ```bash
+# The single check entry point for the whole repository
+make ci
+
 # Compose file validity
 docker compose config >/dev/null
 
