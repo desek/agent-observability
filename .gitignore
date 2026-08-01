@@ -1,3 +1,9 @@
+# Purpose: keep secrets, local data, and build output out of version control.
+# This file lists paths git must never track. It protects the loopback-only
+# privacy posture of the stack: local data volumes and any credential file
+# stay on the machine.
+# @agents-index: Git ignore rules that keep secrets, local data, and build output untracked.
+
 # Secrets and local environment.
 # .env holds credentials, for example an npm publish token. It must never be
 # committed. .env.example is the committed, non-secret template and is exempt.
