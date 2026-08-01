@@ -89,7 +89,7 @@ Move the extension into this repository and make it a first-class published pack
 
 7. **Versioning and changelog.** The package follows semantic versioning. A `CHANGELOG.md` records every release under a dated heading. The version in the manifest is the single source of truth, and the publish workflow refuses to publish a version that is already on the registry.
 
-8. **Continuous integration and publication.** A workflow runs the existing unit tests on every supported Node version on every push and pull request, and additionally runs an installation smoke test that packs the package, installs the tarball into a temporary directory, and asserts that the entry point loads and that the manifest resolves. A second workflow publishes to npm when a version tag is pushed, using npm provenance so consumers can verify the package was built from this repository.
+8. **Continuous integration and publication.** A workflow runs the existing unit tests on every supported Node version on every push and pull request, and additionally runs an installation smoke test that packs the package, installs the tarball into a temporary directory, and asserts that the entry point loads and that the manifest resolves. A second workflow publishes to npm when a version tag is pushed. It publishes through trusted publishing with OpenID Connect. The workflow claims a short-lived identity token, so npm attaches provenance automatically and no long-lived token is stored in the repository. Consumers can verify the package was built from this repository.
 
 9. **Gallery presentation.** The package carries the optional gallery metadata the pi package documentation supports, so the entry in the gallery shows a preview rather than a bare name.
 
@@ -137,10 +137,15 @@ flowchart TD
 20. The package **MUST** ship a `CHANGELOG.md` recording each released version under a dated heading.
 21. The repository **MUST** contain a continuous integration workflow that runs the unit tests on every supported Node version on every push and pull request.
 22. The continuous integration workflow **MUST** include an installation smoke test that packs the package, installs the tarball into a clean directory, and asserts the declared entry point loads.
-23. The repository **MUST** contain a publish workflow triggered by a version tag that publishes to npm with provenance enabled.
+23. The repository **MUST** contain a publish workflow triggered by a version tag that publishes to npm through trusted publishing with OpenID Connect, so that npm attaches provenance automatically.
 24. The publish workflow **MUST** fail rather than publish when the manifest version already exists on the registry.
 25. The version in the manifest, the top entry in the changelog, and the version tag **MUST** agree, and the publish workflow **MUST** verify this.
 26. This repository's documentation **MUST** state both installation paths: the registry specifier for users, and the local path for contributors developing the extension.
+27. The publish workflow **MUST** declare the `id-token: write` permission, because trusted publishing signs the provenance with the workflow identity token.
+28. The publish workflow **MUST** run npm at or above version 11.5.1 and Node at or above version 22.14.0, which trusted publishing with provenance needs.
+29. The repository **MUST NOT** store a long-lived npm token as a repository secret.
+30. The trust relationship **MUST** be created with the `npm trust github` command that names the publish workflow file and the `desek/agent-observability` repository.
+31. The repository **MUST** document the four-step bootstrap sequence: implement the package, publish the first version with a temporary granular access token, configure trust with `npm trust github`, then revoke that token.
 
 ### Non-Functional Requirements
 
@@ -172,7 +177,7 @@ flowchart TD
 
 * Adding, removing, or renaming any emitted metric, log event, span, or attribute. Publication is not the moment to change the signal contract.
 * Achieving parity with any Claude Code telemetry field that the extension does not already cover.
-* Creating the npm organisation. That is a prerequisite the requestor must complete; see Dependencies and Risks.
+* Creating the npm account and enabling two-factor authentication on it. These are the account owner's prerequisites and are not implementation work. The `@desek` scope already exists, because npm grants a scope that matches every account name at sign-up, so no organisation is created. See Dependencies and Risks.
 * Publishing any other package from this repository.
 * A pi extension for MLflow conversation tracking. That question belongs with CR-0004.
 * Automatically installing the extension into the user's pi configuration. That is CR-0006's installation path.
@@ -180,7 +185,8 @@ flowchart TD
 
 ## Alternative Approaches Considered
 
-* **Publish unscoped as `pi-opentelemetry`.** Rejected: the unscoped namespace is first-come and offers no ownership signal. The scope was chosen deliberately, accepting that the organisation must be created first.
+* **Publish unscoped as `pi-opentelemetry`.** Rejected: the unscoped namespace is first-come and offers no ownership signal. The scope was chosen deliberately. It needs no organisation, because npm grants the `@desek` scope to the account at sign-up. `npm whoami` returns `desek`, and the registry returns HTTP 404 for `@desek/pi-opentelemetry`, so the scope and the name are both free.
+* **Publish with a long-lived npm token held as a repository secret.** Rejected: a stored token is a standing credential that can leak and does not attach provenance. Trusted publishing with OpenID Connect wins, because the workflow claims a short-lived identity token at run time, npm attaches provenance automatically, and no credential is stored in the repository. The one cost is a bootstrap: the trust relationship cannot exist before the package exists, so the first version is published once with a temporary token that is revoked straight after.
 * **Distribute by git specifier only.** Rejected as the primary path: it works and needs no registry, but it pins users to a branch or tag of a repository and gives no version resolution, no provenance, and no gallery presence. It remains documented as a fallback.
 * **Keep the extension in the private parent and publish from there.** Rejected: the extension is part of this product, and publishing from a private repository makes provenance meaningless and contribution impossible.
 * **Bundle the extension into the stack rather than publishing it.** Rejected: pi loads extensions from packages, not from a running container. There is no bundling path that a pi user can consume.
@@ -198,6 +204,8 @@ A pi user installs one package and gets full telemetry. A user without this stac
 The package gains a public interface it did not have: its name, its manifest shape, its configuration variable names, and its emitted signal names all become things other people depend on. Changing any of them afterwards is a breaking change under semantic versioning. That is the cost of publication and the reason the signal contract is explicitly out of scope for this change.
 
 Moving the API package to a peer dependency changes installation behaviour for anyone who consumed the package by local path, since the peer must now resolve in the host project. Continuous integration's installation smoke test is what catches a mistake here before a user does.
+
+Publication stores no long-lived credential in the repository after the bootstrap. The publish workflow uses trusted publishing with a short-lived identity token. The single temporary token used for the first publish is revoked straight after the trust relationship is set. From that point, every publish runs from the workflow with provenance attached automatically.
 
 ### Business Impact
 
@@ -225,9 +233,18 @@ Rewrite the README for an external reader: purpose, install, enable, configure, 
 
 Add the test workflow across the supported Node versions. Add the installation smoke test that packs, installs into a clean directory, and loads the declared entry point. This is the test that proves the decision made in Phase 2 was correct.
 
-### Phase 6: Publication
+### Phase 6: Publication and the bootstrap sequence
 
-Add the tag-triggered publish workflow with provenance, the version agreement check, and the already-published guard. Publish `0.1.0` once the npm organisation exists. Confirm the gallery lists the package and that a clean machine can install and run it.
+Add the tag-triggered publish workflow. The workflow publishes through trusted publishing with OpenID Connect, declares `id-token: write`, and runs npm at or above 11.5.1 and Node at or above 22.14.0. Add the version agreement check and the already-published guard.
+
+The trust relationship cannot exist before the package exists. Run the four-step bootstrap in order:
+
+1. Complete the package. This is the work of the earlier phases.
+2. The account owner publishes `0.1.0` from a developer machine with a temporary granular access token. The command is `npm publish --access public`. This first publish is unsigned, because provenance needs a continuous integration identity token. The token value is never passed on the command line and never passed as an environment-variable prefix, because a shell error can print the whole argument and leak it. The account owner supplies the token through an `.npmrc` file that holds the literal text `//registry.npmjs.org/:_authToken=${NPM_TOKEN}` and reads the value from the environment. This repository already has such an `.npmrc`, and `.gitignore` lists it.
+3. The account owner runs `npm trust github @desek/pi-opentelemetry --file publish.yml --repo desek/agent-observability`. This command is run interactively by the account owner, never by the workflow, because two-factor authentication is required and granular tokens with the bypass-two-factor option are not supported for trust commands. The account has two-factor authentication enabled.
+4. The account owner revokes the temporary granular access token. The token exists for exactly one publish and is not stored as a repository secret.
+
+Every later publish then runs from the workflow with provenance attached automatically. Confirm the gallery lists the package and that a clean machine can install and run it.
 
 ### Implementation Flow
 
@@ -249,7 +266,9 @@ flowchart LR
         I["test workflow"] --> J["install smoke test"]
     end
     subgraph P6["Phase 6"]
-        K["publish workflow"] --> L["publish 0.1.0"]
+        K["publish workflow"] --> L["bootstrap: publish 0.1.0 with temporary token"]
+        L --> M["configure npm trust"]
+        M --> N["revoke temporary token"]
     end
     P1 --> P2 --> P3 --> P4 --> P5 --> P6
 ```
@@ -383,14 +402,18 @@ Then the unit tests run on every Node version named in engines
   And the tests pass without a network connection and without a running stack
 ```
 
-### AC-10: Publication is gated and verifiable (covers FR23, FR24, FR25)
+### AC-10: Publication is gated and verifiable (covers FR23, FR24, FR25, FR27, FR28, FR29)
 
 ```gherkin
 Given a version tag is pushed
 When the publish workflow runs
-Then it verifies that the manifest version, the newest changelog entry, and the tag agree
+Then it publishes through trusted publishing with OpenID Connect
+  And it declares the id-token write permission
+  And it runs npm at or above 11.5.1 and Node at or above 22.14.0
+  And it verifies that the manifest version, the newest changelog entry, and the tag agree
   And it refuses to publish when that version already exists on the registry
-  And on success it publishes with provenance enabled
+  And on success npm attaches provenance automatically
+  And no long-lived npm token is stored as a repository secret
 ```
 
 ### AC-11: A pi user can install and use it in one command (covers FR26)
@@ -416,6 +439,26 @@ Then the package is listed with its description
 Given a clean machine with no compiler toolchain
 When the package is installed
 Then installation succeeds with no compilation step
+```
+
+### AC-14: The bootstrap sequence is documented (covers FR30, FR31)
+
+```gherkin
+Given the repository documentation
+When a reader looks for how the first publish and the trust relationship are set up
+Then it states the four-step bootstrap: implement, publish 0.1.0 with a temporary token, run npm trust github, revoke the token
+  And it shows the npm trust github command naming the workflow file and the desek/agent-observability repository
+  And it states that the temporary token is not stored as a repository secret
+```
+
+### AC-15: The personal scope needs no organisation (covers FR2)
+
+```gherkin
+Given the account owner is signed in to npm
+When npm whoami is run
+Then it returns desek
+  And the @desek scope is the account's personal scope
+  And no npm organisation is created for publication
 ```
 
 ## Quality Standards Compliance
@@ -463,6 +506,22 @@ cd packages/pi-opentelemetry && npm test -- --test-name-pattern manifest
 # What would actually be published
 cd packages/pi-opentelemetry && npm pack --dry-run
 
+# Confirm the account and its personal scope, no organisation needed
+npm whoami   # returns desek
+
+# Dry-run a public publish without sending anything to the registry
+cd packages/pi-opentelemetry && npm publish --access public --dry-run
+
+# Inspect the trust relationship once the bootstrap is complete
+npm trust list @desek/pi-opentelemetry
+
+# The .npmrc method for the single bootstrap publish.
+# The file holds a variable name, never a value. npm expands it at read time.
+# .gitignore lists this file.
+cat > .npmrc <<'EOF'
+//registry.npmjs.org/:_authToken=${NPM_TOKEN}
+EOF
+
 # Pack, install into a clean directory, and load the entry point
 ./scripts/pi-package.smoke.sh
 
@@ -477,11 +536,11 @@ curl -sG "http://localhost:${EDGE_PORT:-24317}/prometheus/api/v1/query" \
 
 ## Risks and Mitigation
 
-### Risk 1: The npm organisation does not exist yet
+### Risk 1: The bootstrap ordering
 
-**Likelihood:** certain at the time of writing
-**Impact:** high; publication is blocked entirely
-**Mitigation:** Creating the organisation is a named prerequisite under Dependencies, and it blocks only the final phase. Every other phase proceeds without it, and the publish workflow is written and tested with a dry run so that publication is a single step once the organisation exists. If the scoped name proves unobtainable, the fallback is the unscoped name with the rest of the change unaffected.
+**Likelihood:** certain by design
+**Impact:** medium; the first publish cannot use trusted publishing
+**Mitigation:** A trust relationship cannot be configured until the package exists on the registry, so exactly one publish must happen with a temporary credential. The four-step bootstrap in Phase 6 handles this: publish `0.1.0` with a temporary granular access token, run `npm trust github`, then revoke the token as the closing step. The token exists for one publish and is not stored as a repository secret. Every later publish runs from the workflow with provenance attached. The `@desek` scope and the `pi-opentelemetry` name are both confirmed free, so the scoped name is obtainable.
 
 ### Risk 2: pi does not load TypeScript from a registry-installed package
 
@@ -513,12 +572,19 @@ curl -sG "http://localhost:${EDGE_PORT:-24317}/prometheus/api/v1/query" \
 **Impact:** low; it surfaces at install time as an unmet peer
 **Mitigation:** The changelog records it as the notable change in the first release, and the installation smoke test covers the registry path that most users will take.
 
+### Risk 7: The bootstrap token leaks through a shell error message
+
+**Likelihood:** medium if the token is passed on the command line
+**Impact:** high; a leaked token grants publish access to the package
+**Mitigation:** The temporary token value is never passed as a command-line argument and never passed as an environment-variable assignment prefix, because a shell error can print the whole argument and leak it. The account owner supplies the token through an `.npmrc` file that holds the literal text `//registry.npmjs.org/:_authToken=${NPM_TOKEN}`. npm expands the variable at read time, so the file holds a variable name and never a value. `.gitignore` lists this file. The token is revoked straight after the single bootstrap publish.
+
 ## Dependencies
 
-* **Prerequisite, external:** the `desek` npm organisation must be created before Phase 6. Every earlier phase is unblocked.
+* **Prerequisite, external:** an npm account with two-factor authentication enabled. The account owner confirms two-factor authentication is enabled. No npm organisation is created, because the `@desek` scope is granted to the account at sign-up.
+* **Prerequisite, external:** a temporary granular access token for the single bootstrap publish, supplied through the `.npmrc` method and revoked straight after. It is not stored as a repository secret.
 * CR-0001, for the repository root, the license, and the stack the extension exports to.
 * A reading of pi's own source at a recorded version, to settle the entry-point question in Phase 2.
-* Node and npm on the continuous integration runner, and an npm publish token held as a repository secret.
+* Node at or above 22.14.0 and npm at or above 11.5.1 on the continuous integration runner, so trusted publishing attaches provenance. npm at or above 11.10.0 on the account owner's machine for the `npm trust` command.
 
 ## Estimated Effort
 

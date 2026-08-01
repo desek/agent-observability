@@ -15,3 +15,6 @@ dist/
 
 # Operating system and editor noise.
 .DS_Store
+
+# Local npm auth pointer. Holds a variable name, never a value.
+.npmrc
