@@ -1,0 +1,17 @@
+# Secrets and local environment.
+# .env holds credentials, for example an npm publish token. It must never be
+# committed. .env.example is the committed, non-secret template and is exempt.
+.env
+.env.*
+!.env.example
+
+# Node dependencies and build output.
+node_modules/
+dist/
+*.tgz
+
+# Local data and logs produced by running the stack or the scripts.
+*.log
+
+# Operating system and editor noise.
+.DS_Store
