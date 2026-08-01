@@ -169,7 +169,7 @@ flowchart TD
 
 1. The stack **MUST** run entirely on the local machine and **MUST NOT** require any hosted account, remote database, or remote object store.
 2. The stack **MUST NOT** transmit telemetry to any endpoint outside the local machine.
-3. A first-time user **MUST** reach a running, verified stack with no more than two commands: one to start it and one to verify it.
+3. A first-time user following the manual path **MUST** reach a running, verified stack with no more than two commands: one to start it and one to verify it. This path is the documented alternative rather than the recommended one, and the two scripts it uses are the same scripts the recommended agent-driven path calls, so neither path can drift from the other.
 4. The stack **MUST** start on a machine with Docker installed and no other prerequisite, and the README **MUST** state the minimum Docker Compose version relied upon.
 5. Configuration **MUST** be reproducible: an identical clone on another machine **MUST** produce an identical stack, because every version is pinned.
 6. Every reusable script **MUST** be executable, single-purpose, self-describing with a top docstring, and **MUST** print usage when invoked without required arguments.
