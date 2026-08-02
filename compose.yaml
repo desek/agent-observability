@@ -153,6 +153,74 @@ services:
       retries: 12
       start_period: 30s
 
+  # Grafana MCP server: exposes Grafana (and the Loki, Mimir, and Tempo
+  # datasources behind it) to a coding agent as typed MCP tools, so an agent
+  # queries telemetry with schemas instead of hand-built shell requests. It is
+  # an internal service: it publishes NO host port and is reached only over the
+  # otel network by service name, fronted through the single HAProxy loopback
+  # port under /grafana-mcp/, preserving the single-published-port invariant.
+  #
+  # It addresses Grafana by service name (grafana:3000) and authenticates with
+  # the stack's own admin credentials held here in the compose environment, so
+  # nothing has to be pasted into an agent configuration and no credential ever
+  # reaches .mcp.json.
+  #
+  # Safety posture (the server authenticates as an administrator, so read-only
+  # is what keeps that safe):
+  #   -disable-write        every create/update tool is withheld; the default
+  #                         tool set is read-only.
+  #   -enabled-tools        restricted to the categories this stack actually
+  #                         runs: search, datasource, dashboard, prometheus
+  #                         (Mimir), loki, and navigation (which carries the
+  #                         generate_deeplink tool). The admin category is off by
+  #                         default in the image and stays off. mcp-grafana
+  #                         v1.0.0 ships no dedicated Tempo tool category; the
+  #                         Tempo datasource is still reachable through the
+  #                         datasource tools.
+  #
+  # The published image entrypoint defaults to the SSE transport, so the
+  # entrypoint is overridden to the bare binary and streamable HTTP is set
+  # explicitly with -t. -endpoint-path is set to the full proxied path so
+  # HAProxy forwards /grafana-mcp/mcp straight through with no rewrite.
+  # -allowed-hosts is "*" because the server's default Host allow-list is the
+  # loopback variants of its own bind address (0.0.0.0:8000), which would reject
+  # the edge Host header HAProxy forwards unchanged. Disabling that check is safe
+  # here for the same reason the whole stack is: the only ingress is HAProxy
+  # bound to 127.0.0.1, so nothing off the machine can reach this port. Image
+  # tag pinned (never latest).
+  mcp-grafana:
+    image: grafana/mcp-grafana:1.0.0
+    entrypoint: ["/app/mcp-grafana"]
+    command:
+      - -t
+      - streamable-http
+      - -address
+      - 0.0.0.0:8000
+      - -endpoint-path
+      - /grafana-mcp/mcp
+      - -allowed-hosts
+      - "*"
+      - -disable-write
+      - -enabled-tools
+      - search,datasource,dashboard,prometheus,loki,navigation
+    environment:
+      GRAFANA_URL: http://grafana:3000
+      GRAFANA_USERNAME: admin
+      GRAFANA_PASSWORD: admin
+    networks:
+      - otel
+    depends_on:
+      # Start-ordering only. The server connects to Grafana per request, not at
+      # boot, so it does not need Grafana healthy to start; HAProxy health-checks
+      # the backend once it is up (see stack/haproxy/haproxy.cfg).
+      grafana:
+        condition: service_started
+    restart: unless-stopped
+    # No container healthcheck: the image is minimal (no curl or wget), so an
+    # exec-based check cannot run. Readiness is verified from HAProxy via
+    # option httpchk against the server's own /healthz endpoint, the same way
+    # the distroless backends are checked (see the mcp backend in haproxy.cfg).
+
   # HAProxy: the single edge proxy fronting the whole stack. It is the only
   # service publishing a host port (127.0.0.1 only), collapsing the seven
   # per-service mappings into one loopback surface. A single cleartext mode-http
