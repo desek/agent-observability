@@ -6,10 +6,11 @@ Operational note: this repository's stack runs as compose project `agent-observa
 
 ## Summary
 
-Requirements: 33/33 | Acceptance Criteria: 18/19 | Tests: 6/6 | Gaps: 0
+Requirements: 33/33 | Acceptance Criteria: 19/19 | Tests: 6/6 | Gaps: 0
 
 - FR PASS 27/27, NFR PASS 6/6.
-- AC PASS 18/19, PARTIAL 1 (AC-10), FAIL 0, GAP 0.
+- AC PASS 19/19, PARTIAL 0, FAIL 0, GAP 0.
+- AC-10 gap-closure pass on 2026-08-02: exercised the stack end to end with real Claude Code telemetry and observed the readable line and all four provenance labels; PARTIAL raised to PASS.
 - Test Strategy entries present and matching spec: 6/6.
 
 ## Requirement Verification
@@ -63,7 +64,7 @@ Requirements: 33/33 | Acceptance Criteria: 18/19 | Tests: 6/6 | Gaps: 0
 | AC-7 | Repository is self-contained | PASS | both `git grep` scans (parent paths, governance IDs) outside docs → NONE |
 | AC-8 | Verify proves stack and fails usefully | PASS | `docker compose stop loki` then verify → exit 1, `FAIL endpoint '/loki/ready' returned '000'`, names fix `docker compose up -d loki`; loki restarted |
 | AC-9 | Images pinned | PASS | 7 `image:` lines all tagged; verify check 5 PASS |
-| AC-10 | Log lines readable and provenance queryable | PARTIAL | Transform + label promotion are configured (`config.alloy:40-94`, `loki:53-61`, `mimir:71`) but the running stack has ingested NO agent telemetry: Loki `service_name` values = `["haproxy-edge"]` only; Loki labels = `[job,service,service_name]` (no `git_*`). Behaviour not observable without agent data |
+| AC-10 | Log lines readable and provenance queryable | PASS | Closed by observation on 2026-08-02 (see AC-10 gap-closure below). Drove one real Claude Code turn at `127.0.0.1:24417`: Loki body carries content (`[api_request] model=claude-opus-5 in=2 out=6 cost_usd=0.0176255 duration_ms=1770`, plus `[user_prompt]`/`[assistant_response]` tags), zero bare `claude_code.*` bodies; `{git_repo="agent-observability"}` selects 5 streams; all four provenance labels present (`git_org=desek`, `git_repo=agent-observability`, `git_branch=main`, `git_path=/Users/desek/Repo/desek/experiments/agent-observability`). Config was correct as validated; no source fix needed |
 | AC-11 | Edge proxy is itself observable | PASS | Mimir query `haproxy_process_start_time_seconds` returns a series; Loki `{job="haproxy"}` returns a formatted access line |
 | AC-12 | Privacy and teardown documented | PASS | `README.md:196-225` (plaintext, no data leaves, per-flag redaction), `:236-254` (`down` vs `down -v`) |
 | AC-13 | Apache-2.0 licensed | PASS | `LICENSE:1-2` |
@@ -117,8 +118,41 @@ None. Every changed file falls within the CR's declared Affected Components (`co
 
 ## Gaps
 
-None blocking. One PARTIAL and one advisory note:
+None. Zero FAIL, zero GAP, zero PARTIAL. One advisory note retained below.
 
-- **AC-10 (PARTIAL, not a scope gap):** the readable-log-line transform and the git-provenance label promotion are fully present and correct in configuration, but the running stack has ingested no `claude_code.*` / `pi.*` telemetry, so the readable line and the `git_org`/`git_repo`/`git_branch`/`git_path` selectors cannot be observed end to end. Producing agent telemetry is the domain of CR-0003 (pi extension) and normal agent use, not of CR-0001's deliverable. No source fix is warranted; the configuration deliverable is met. If PASS is required, exercise it by driving one agent run through the stack and re-querying Loki.
+### AC-10 gap-closure (2026-08-02)
+
+AC-10 was PARTIAL because the readable-log-line transform and the git-provenance label promotion were verified only by reading the configuration; the running stack had ingested no agent telemetry (`service_name` = `["haproxy-edge"]` only). It is now PASS, closed by observation. No source change was made: the configuration was correct as originally validated, and the deficit was purely that no `claude_code.*` telemetry had ever been ingested by this stack.
+
+**How it was exercised.** A one-off Claude Code turn was driven non-interactively against this repository's stack (compose project `agent-observability`, `EDGE_PORT=24417` from the gitignored `.env`). The user's global `~/.claude/settings.json` pins `OTEL_EXPORTER_OTLP_ENDPOINT` at the *other* stack (`24317`), and Claude Code's settings `env` overrides the inherited process env, so setting the endpoint via shell environment alone was insufficient (the first attempt landed on the other stack). The redirect was done with the command-line `--settings` flag, which outranks user settings and needs no edit to the global file. Git provenance was derived from this repo with `git`, not invented.
+
+Commands run (endpoint, org, repo, branch derived from the repo; content flags and cumulative temporality set):
+
+```bash
+# Derive provenance and drive one turn, endpoint forced to THIS stack via --settings
+EDGE_PORT=$(grep -E '^EDGE_PORT=' .env | cut -d= -f2)          # 24417
+SETTINGS='{"env":{"CLAUDE_CODE_ENABLE_TELEMETRY":"1","OTEL_METRICS_EXPORTER":"otlp",
+  "OTEL_LOGS_EXPORTER":"otlp","OTEL_TRACES_EXPORTER":"otlp","OTEL_EXPORTER_OTLP_PROTOCOL":"grpc",
+  "OTEL_EXPORTER_OTLP_ENDPOINT":"http://localhost:24417",
+  "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE":"cumulative",
+  "OTEL_LOG_USER_PROMPTS":"1","OTEL_LOG_ASSISTANT_RESPONSES":"1",
+  "OTEL_METRIC_EXPORT_INTERVAL":"2000","OTEL_LOGS_EXPORT_INTERVAL":"2000",
+  "OTEL_RESOURCE_ATTRIBUTES":"git.org=desek,git.repo=agent-observability,git.branch=main,git.path=/Users/desek/Repo/desek/experiments/agent-observability"}}'
+claude --settings "$SETTINGS" -p "Print the word telemetry and nothing else."
+
+# Observe (retried until export arrived; landed on the first poll after redirect)
+curl -s http://localhost:24417/loki/api/v1/labels
+curl -s http://localhost:24417/loki/api/v1/label/service_name/values
+curl -s http://localhost:24417/loki/api/v1/label/git_repo/values
+curl -s 'http://localhost:24417/loki/api/v1/query_range' --data-urlencode 'query={git_repo="agent-observability"}' --data-urlencode 'limit=50' --data-urlencode "start=$(( $(date +%s) - 900 ))000000000" --data-urlencode "end=$(date +%s)000000000"
+```
+
+What was observed, against the three required points:
+
+1. **Readable line (transform fired).** Loki bodies carry content, not a bare event name. Concrete non-content line: `[api_request] model=claude-opus-5 in=2 out=6 cost_usd=0.0176255 duration_ms=1770`. Content-carrying events rendered as `[user_prompt] ...`, `[assistant_response] ...`, `[plugin_loaded] ...` (only the leading tag recorded here for the content-bearing lines). A query for bodies matching `^claude_code\.` returned **0** lines, confirming no record renders as a bare event name.
+2. **Stream selected by provenance.** `{git_repo="agent-observability"}` over the last 15 minutes returned **5 streams**, all `service_name=claude-code`.
+3. **Provenance labels present.** Loki label list is now `[git_branch, git_org, git_path, git_repo, job, service, service_name]`. Values: `git_org=desek`, `git_repo=agent-observability`, `git_branch=main`, `git_path=/Users/desek/Repo/desek/experiments/agent-observability`. `service_name` values are now `["claude-code","haproxy-edge"]` (was `["haproxy-edge"]` only).
+
+**Stack isolation.** Only `agent-observability` (24417) received the redirected telemetry and was queried for evidence; the private `observability` stack (24317) was not stopped, restarted, or reconfigured. A first attempt, before the `--settings` redirect, exported one trivial turn to `24317` because the global settings override was not yet countered; that stack was left untouched and healthy (up 13 days). Both stacks are running and healthy at the end of this pass.
 
 - **Advisory — orchestrator note mismatch on AC-18/AC-19:** the tasking note characterised AC-18 as "a 5 second dashboard load budget" and AC-19 as "a plugin constraint" belonging to a later dashboard CR. Those criteria do not exist in CR-0001. This CR's AC-18 is "no hosted dependency" and AC-19 is "local prerequisites documented" — both satisfiable and satisfied (PASS above). There is no dashboard-budget or plugin criterion in this CR to record as a GAP.
