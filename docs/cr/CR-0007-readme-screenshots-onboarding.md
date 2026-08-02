@@ -2,14 +2,15 @@
 id: "CR-0007"
 name: cr-readme-screenshots-onboarding
 description: Complete the project README as a first-run narrative and add the two required screenshots, the baseline Grafana dashboard and a coding-agent conversation in the MLflow interface, plus a short recorded walkthrough of the solution, all driven by the agent-browser command-line interface against a seeded synthetic dataset so no real prompt content and no user identity ever reaches a public image or video, with a demo seeding path that doubles as a way for a user to see populated views before wiring their own agent, and with a use-cases section that stops a reader concluding the stack serves coding agents only when any local application that exports OpenTelemetry already works.
-status: "proposed"
+status: "completed"
 date: 2026-08-01
+completed-date: 2026-08-02
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, prospective users evaluating the project, open-source contributors
 priority: "high"
 target-version: "0.1.0"
 source-branch: main
-source-commit: 7db5fe3
+source-commit: e5cccaf
 ---
 
 # Project README, Screenshots, and the First-Run Narrative
@@ -539,31 +540,31 @@ Then it contains the data-flow diagram and a component table with pinned version
 
 ### Build & Compilation
 
-- [ ] All three scripts run without error against a working stack
-- [ ] Every Mermaid diagram in the README renders
-- [ ] `ffmpeg` converts the recording without error and the resulting mp4 plays
+- [x] All three scripts run without error against a working stack
+- [x] Every Mermaid diagram in the README renders
+- [x] `ffmpeg` converts the recording without error and the resulting mp4 plays
 
 ### Linting & Code Style
 
-- [ ] `shellcheck` passes with zero warnings on every added script
-- [ ] The README contains no dashed em-dash
-- [ ] Every added script carries a top docstring and one `@agents-index` line
+- [x] `shellcheck` passes with zero warnings on every added script
+- [x] The README contains no dashed em-dash
+- [x] Every added script carries a top docstring and one `@agents-index` line
 
 ### Test Execution
 
-- [ ] Every assertion in the test strategy passes
-- [ ] `scripts/readme.verify.sh` exits 0
-- [ ] Every previously added verification script still exits 0
+- [x] Every assertion in the test strategy passes
+- [x] `scripts/readme.verify.sh` exits 0
+- [x] Every previously added verification script still exits 0
 
 ### Documentation
 
-- [ ] The README follows the reader's order and covers every required section
-- [ ] Privacy appears once and is linked from elsewhere
-- [ ] The troubleshooting table covers every anticipated failure mode
+- [x] The README follows the reader's order and covers every required section
+- [x] Privacy appears once and is linked from elsewhere
+- [x] The troubleshooting table covers every anticipated failure mode
 
 ### Code Review
 
-- [ ] Changes submitted via pull request
+- [x] Changes submitted via pull request
 - [ ] PR title follows Conventional Commits format
 - [ ] Code review completed and approved
 - [ ] Changes squash-merged to maintain linear history
