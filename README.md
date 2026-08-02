@@ -115,6 +115,44 @@ datasources report healthy, and that no image tag floats. It exits non-zero on
 the first failure and names the fix. Run `./scripts/stack.verify.sh -h` for its
 usage.
 
+## Dashboard
+
+The stack ships one provisioned dashboard, **Coding Agent Observability**, with
+the stable identifier `agent-observability`. It appears in Grafana automatically
+on start, with no import step. Open it directly through the single published
+port:
+
+```
+http://localhost:24317/d/agent-observability
+```
+
+If you set `EDGE_PORT`, use your port instead of `24317`.
+
+The dashboard covers all three signals for both Claude Code and pi: cost, token,
+session, and active-time stats from Mimir; the readable conversation and tool log
+stream from Loki; and the agent trace list from Tempo. Template variables narrow
+every panel by agent, git repository, branch, and model. No panel groups by or
+displays a user identity label, so the dashboard is safe to share as a
+screenshot.
+
+The dashboard is provisioned read-only from `stack/grafana/dashboards/agent-observability.json`,
+so the committed file is the source of truth. Grafana refuses to save an edit in
+place; use "Save as" to keep a variant of your own.
+
+To prove the dashboard loads and that every panel executes against its
+datasource, run its verification script:
+
+```bash
+./scripts/dashboard.verify.sh
+```
+
+It asserts the dashboard is present and read-only, that every panel returns data
+where its metric family has samples or an explicit empty result where it does
+not, that no identity label appears, that counters aggregate correctly, and that
+the variables and panel documentation are complete. It exits non-zero on the
+first failure and names the fix. Run `./scripts/dashboard.verify.sh -h` for its
+usage.
+
 ## Checks
 
 `make ci` is the single command that checks the repository:
@@ -142,7 +180,7 @@ help` to list the individual targets.
 | `Makefile` | `make ci`, the single check entry point. |
 | `LICENSE` | The Apache-2.0 license. |
 | `stack/alloy/` | Alloy collector configuration. |
-| `stack/grafana/` | Grafana datasource provisioning. |
+| `stack/grafana/` | Grafana datasource and dashboard provisioning, and the committed dashboard JSON. |
 | `stack/haproxy/` | The edge-proxy routing configuration. |
 | `stack/loki/` | Loki log-store configuration. |
 | `stack/mimir/` | Mimir metric-store configuration. |
@@ -152,6 +190,7 @@ help` to list the individual targets.
 | `agents/direnvrc` | The optional git-provenance direnv helper. |
 | `scripts/stack.up.sh` | Start the stack and wait until it is ready. |
 | `scripts/stack.verify.sh` | Verify the running stack from the outside. |
+| `scripts/dashboard.verify.sh` | Verify the provisioned dashboard and that every panel executes. |
 | `docs/cr/` | The governance record for this repository. |
 
 ## Service access

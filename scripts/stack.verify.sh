@@ -8,7 +8,8 @@
 # single run. It asserts five facts, each reported as its own check:
 #   1. Exactly one service publishes a host port, and it binds 127.0.0.1.
 #   2. All six endpoints answer through that single port.
-#   3. The three Grafana datasources exist and their health checks pass.
+#   3. The three Grafana datasources exist and their health checks pass, and
+#      the provisioned dashboard is present by its uid.
 #   4. No tracked file outside docs references a parent-only path or a
 #      governance identifier.
 #   5. No image reference in compose.yaml uses the floating latest tag.
@@ -179,7 +180,19 @@ check_datasources() {
 				"re-run 'scripts/stack.verify.sh' and confirm '${uid}' reports status OK."
 		fi
 	done
-	pass "the mimir, loki, and tempo datasources exist and report healthy."
+	# The provisioned dashboard is part of what a correctly provisioned stack
+	# means, so its presence is asserted alongside the datasources. The deeper
+	# panel-level proof lives in scripts/dashboard.verify.sh; here we only assert
+	# the dashboard is present by its stable uid.
+	local dash_uids
+	dash_uids="$(curl -s --max-time 10 -u "${grafana_user}:${grafana_password}" \
+		"${base_url}/api/search?query=Coding%20Agent%20Observability" | grep -o '"uid":"agent-observability"' || true)"
+	if [ -z "$dash_uids" ]; then
+		fail "the provisioned dashboard 'agent-observability' is not present in Grafana." \
+			"confirm 'stack/grafana/provisioning/dashboards/dashboards.yaml' loads the dashboard directory and re-provision with 'docker compose up -d grafana'." \
+			"re-run 'scripts/stack.verify.sh' and confirm the dashboard is present, then run 'scripts/dashboard.verify.sh' for the full panel proof."
+	fi
+	pass "the mimir, loki, and tempo datasources exist and report healthy, and the provisioned dashboard is present."
 }
 
 # --- Check 4: no parent references and no governance identifiers -------------
