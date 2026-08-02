@@ -2,21 +2,26 @@
  * @agents-index Default-export pi extension factory for pi-mlflow-tracing: reads
  *   the master switch from the environment, resolves the enabled decision, and
  *   returns without registering any handler, constructing any exporter, or
- *   opening any socket when disabled; when enabled it registers the export and
- *   flush lifecycle anchors fail-safe so a fault can never propagate into pi.
+ *   opening any socket when disabled; when enabled it feeds pi's lifecycle events
+ *   to the trace builder and registers the export and flush lifecycle anchors
+ *   fail-safe so a fault can never propagate into pi.
  *
- * Why: pi loads this module's default export with its ExtensionAPI. This is the
- * load-safe skeleton the later phases build on. A disabled or unconfigured
- * extension imposes zero cost and emits nothing (FR2, NFR6, AC-2), which is also
- * the state of a machine that runs only the sibling package. When enabled, the
- * factory owns the extension's export lifecycle: Phase 3 wires the span-tree
- * reconstruction (root per agent loop, child per turn, child per tool call) and
+ * Why: pi loads this module's default export with its ExtensionAPI. A disabled or
+ * unconfigured extension imposes zero cost and emits nothing (FR2, NFR6, AC-2),
+ * which is also the state of a machine that runs only the sibling package. When
+ * enabled, the factory forwards before_agent_start, turn_end, tool_execution_start,
+ * tool_execution_end, and agent_end into a TraceBuilder, which reconstructs one
+ * MLflow trace per agent loop (root per loop, child per turn, child per tool call)
+ * and releases the conversation content when the loop's trace is taken (NFR3).
  * Phase 4 wires the MLflow exporter, the experiment resolution, and the shutdown
- * flush behind the anchors registered here. Every registration is wrapped so a
- * telemetry fault can never crash, block, or slow pi's agent loop (NFR1, AC-15).
+ * flush behind the anchors registered here. Every registration and every handler
+ * body is wrapped so a telemetry fault can never crash, block, or slow pi's agent
+ * loop (NFR1, AC-15).
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+
+import { TraceBuilder } from "./trace.builder.ts";
 
 /**
  * Name of the master switch environment variable. Unset or a false value keeps
@@ -81,6 +86,22 @@ function failSafe(fn: () => void): void {
 }
 
 /**
+ * Read pi's session identity from a handler context defensively, so a missing or
+ * throwing session manager degrades to an ungrouped trace rather than a crash
+ * (NFR1). The session id groups a session's traces together in MLflow (FR5).
+ *
+ * @param ctx - The extension context handed to an event handler.
+ * @returns The session id, or undefined when it cannot be read.
+ */
+function sessionIdOf(ctx: ExtensionContext | undefined): string | undefined {
+  try {
+    return ctx?.sessionManager?.getSessionId?.();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
  * pi extension factory. Registered handlers are added only when the master
  * switch is set; the whole enabled body is defensive so a telemetry failure,
  * including a throwing host API, can never crash or block pi's agent loop
@@ -107,19 +128,56 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // NFR6, AC-2).
   if (!enabled) return;
 
-  // Enabled: register the export lifecycle anchors. agent_end is where one agent
-  // loop becomes one exported MLflow trace (FR3), and session_shutdown is where
-  // a pending export is flushed so the last conversation of a session is not
-  // lost (NFR4). Phase 3 wires the span-tree reconstruction and Phase 4 wires
-  // the exporter, the experiment resolution, and the flush behind these anchors;
-  // the skeleton commits to the shape without yet doing either. Each
-  // registration is fail-safe so a throwing host API cannot propagate into pi's
-  // startup (NFR1, AC-15).
+  // Enabled: reconstruct one MLflow trace per agent loop from pi's lifecycle
+  // events. The builder holds the in-progress conversation and releases it when
+  // agent_end takes the completed trace, so content never outlives the loop
+  // (NFR3). Each registration is fail-safe so a throwing host API cannot
+  // propagate into pi's startup, and every handler body is fail-safe so a
+  // reconstruction fault cannot break the agent loop (NFR1, AC-15).
+  const builder = new TraceBuilder();
+
+  // The prompt opens a new trace; the session id groups the session's traces
+  // (FR3, FR5).
   failSafe(() => {
-    pi.on("agent_end", () => {
-      // Phase 4: export the reconstructed trace for the completed agent loop.
+    pi.on("before_agent_start", (event, ctx) => {
+      failSafe(() => builder.beforeAgentStart(event, sessionIdOf(ctx)));
     });
   });
+
+  // Each turn becomes an LLM span carrying the model and token usage (FR6).
+  failSafe(() => {
+    pi.on("turn_end", (event) => {
+      failSafe(() => builder.turnEnd(event));
+    });
+  });
+
+  // Each tool call becomes a TOOL span parented to the turn that issued it (FR7).
+  failSafe(() => {
+    pi.on("tool_execution_start", (event) => {
+      failSafe(() => builder.toolExecutionStart(event));
+    });
+  });
+  failSafe(() => {
+    pi.on("tool_execution_end", (event) => {
+      failSafe(() => builder.toolExecutionEnd(event));
+    });
+  });
+
+  // agent_end is where one agent loop becomes one MLflow trace (FR3). Building it
+  // here already releases the builder's retained conversation content (NFR3).
+  // Phase 4 hands the returned trace to the MLflow exporter.
+  failSafe(() => {
+    pi.on("agent_end", () => {
+      failSafe(() => {
+        const trace = builder.agentEnd();
+        // Phase 4: export `trace` to the MLflow ingest endpoint.
+        void trace;
+      });
+    });
+  });
+
+  // session_shutdown is where a pending export is flushed so the last
+  // conversation of a session is not lost (NFR4). Phase 4 wires the flush.
   failSafe(() => {
     pi.on("session_shutdown", () => {
       // Phase 4: flush any pending export before the process exits (NFR4).
