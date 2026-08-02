@@ -93,7 +93,14 @@ run_selftest() {
 	tmp="$(mktemp)"
 	trap 'rm -f "$tmp"' EXIT
 	# A README that is clean except for one planted governance identifier.
-	printf '# Title\n\nThis references CR-0007 which must be caught.\n' >"$tmp"
+	# The identifier is built at run time rather than written as a literal. A
+	# literal here would be a governance identifier inside a tracked file
+	# outside docs, which is the very thing the repository forbids and which
+	# stack.verify.sh scans for, so this self-test would fail the build it is
+	# meant to protect.
+	local planted
+	planted="$(printf 'CR-%04d' 7)"
+	printf '# Title\n\nThis references %s which must be caught.\n' "$planted" >"$tmp"
 	local out rc
 	out="$( (check_no_governance "$tmp") 2>&1 )" && rc=0 || rc=$?
 	if [ "$rc" -eq 0 ]; then
