@@ -80,6 +80,12 @@ Ship the installation as an instruction the user's own agent executes.
 
 4. **Configuration, per agent.** For Claude Code the agent writes the telemetry keys into the settings file at the chosen scope, merging with what is there rather than replacing it, including the temporality key without which all metrics are dropped, and pointing the export address at the configured port rather than a literal. For pi the agent installs the published package by its registry specifier, arranges for the master switch and the shared flag file, and confirms the extension loads. In both cases it places the example agent configuration file for the Grafana tools at the chosen scope.
 
+   **Which settings file, and why it matters.** Claude Code resolves settings in a fixed precedence order, highest first: a managed policy, then command line arguments, then `.claude/settings.local.json`, then `.claude/settings.json`, then the user's `~/.claude/settings.json`. The `env` block merges across levels rather than replacing, so a higher level can override one key and leave the rest alone. This was verified by observation, not assumed: with the user's file pinning one endpoint and a project file pinning another, one turn exported to the project file's endpoint and nothing reached the other.
+
+   Three consequences bind this path. First, the goal is reachable at project or local scope, so the path prefers those and does not need to touch the user's global file at all. That removes most of the trust cost this change spends its mitigations on. Second, a setting the path writes has no effect if a higher level already pins the same key, so the agent must determine what actually wins before it writes, or it will report success while telemetry goes elsewhere. Third, because the `env` block merges, the agent adds keys rather than replacing the block.
+
+   The content-logging choice is placed differently from the rest. A committed `.claude/settings.json` applies to everyone who clones the repository and opens an agent in it, so a content flag written there would enable the recording of other people's prompts by inheritance. Content flags therefore go in `.claude/settings.local.json`, which Claude Code keeps out of version control by default, so the choice stays with the person who made it.
+
 5. **Optional steps, offered rather than assumed.** Conversation tracing is offered, not performed by default, and when accepted the agent calls the existing enable script rather than reimplementing it, so the script's own disclosure is the one the user sees. Git provenance stamping, which makes telemetry sliceable by repository and branch, is likewise offered with its mechanism explained.
 
 6. **Verification is part of installation, not a follow-up.** After configuring, the agent produces one non-interactive turn, waits for the export interval, and queries the stack for the resulting metric, log, and trace. It reports which of the three arrived. If something did not arrive it diagnoses from a fixed list of causes rather than guessing: the stack is not running, the export address is wrong, the temporality key is missing, the package is not installed, the export interval has not elapsed. Installation is not reported as successful until data has been seen.
@@ -151,6 +157,12 @@ flowchart TD
 30. The instruction **MUST** forbid changing any file not named in the accepted plan.
 31. The instruction **MUST** require the agent to ask before starting or stopping the stack.
 32. Every deterministic step **MUST** be performed by calling a repository script where one exists, rather than by the agent improvising an equivalent.
+33. The instruction **MUST** prefer the project scope `.claude/settings.json` or the local scope `.claude/settings.local.json` over the user's `~/.claude/settings.json`, and **MUST NOT** write to the user's global settings file unless the user chooses machine-wide scope explicitly.
+34. The instruction **MUST** require the agent to determine which settings level actually governs each key it intends to write, before it writes, because a key pinned at a higher precedence level makes a lower-level write take no effect.
+35. The instruction **MUST** require the agent to report and resolve a higher-precedence pin with the user rather than writing a value that will not take effect.
+36. The instruction **MUST** require the agent to add keys to the `env` block rather than replace the block, because the block merges across precedence levels.
+37. The instruction **MUST** require that content-logging flags are written to `.claude/settings.local.json`, which is kept out of version control by default, and **MUST NOT** write a content-logging flag into a settings file that is committed to a repository.
+38. The instruction **MUST NOT** rely on a shell environment variable to redirect an agent whose settings file already pins the same key, because the settings file wins.
 
 ### Non-Functional Requirements
 
@@ -382,6 +394,27 @@ Given Claude Code has been configured by this path
 When the settings file is inspected
 Then the metrics temporality key is present with the value the metrics store accepts
   And metric queries return data after one turn
+```
+
+### AC-9a: The path writes at the least intrusive scope that works (covers FR33, FR36, FR37)
+
+```gherkin
+Given a user who accepts configuration for the current project
+When the installation path configures Claude Code
+Then it writes the telemetry keys to the project or local settings file
+  And the user's global settings file is unchanged
+  And the existing keys in the env block are preserved, with the new keys added
+  And any content-logging flag the user chose is written to the local settings file, which is not committed
+```
+
+### AC-9b: A higher-precedence pin is found before it causes a silent failure (covers FR34, FR35, FR38)
+
+```gherkin
+Given a settings level of higher precedence already pins the export endpoint to a different address
+When the installation path runs
+Then the agent reports which level governs that key and what it currently holds
+  And it asks the user how to resolve it rather than writing a value that will not take effect
+  And it does not report success while telemetry is exporting to the other address
 ```
 
 ### AC-9: The configured port is honoured (covers FR19)
