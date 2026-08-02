@@ -106,6 +106,23 @@ flowchart TD
     PI -.->|"tracing integration deliberately not attempted"| EXP
 ```
 
+### What MLflow 3.14 actually provides, verified 2026-08-02
+
+The integration changed shape at MLflow 3.14, and the change is favourable. It was read from the installed 3.14.0 client in this stack's own image, not from documentation.
+
+`mlflow autolog claude` still exists and is still the setup command. What moved is the internal Python stop hook, which is now marked "Deprecated and ignored. Python-based Claude hooks were replaced by the marketplace plugin runtime." In its place the command installs an MLflow plugin into Claude Code and writes configuration into the settings file. After setup a user runs `claude` normally and the plugin runtime produces the traces.
+
+Four properties of the 3.14 command matter to this change, and each removes work this document had planned:
+
+* **It is directory scoped by default.** The `-d` option selects the directory and defaults to the current one. So the integration is project scoped without being asked, which matches the settings precedence rule that a project file beats the user's global file.
+* **It can write to the local settings file instead.** A flag selects `settings.local.json` rather than `settings.json`. That file is kept out of version control by default, which is exactly where a content-bearing choice belongs, so a committed project file never enables the recording of another person's prompts by inheritance.
+* **It has a real disable path.** `--disable` removes the configuration from both settings files, so the reversal this document requires is provided rather than reimplemented.
+* **The plugin runtime replaces the wrapper.** This document planned a wrapper script invoked by an end-of-turn hook, so that the choice of client would not be frozen into the user's settings. The plugin runtime now owns that responsibility. The wrapper's remaining job is narrower: resolve a client so the SETUP command can run on a machine with no Python installation. It is no longer on the path of every turn.
+
+**This change therefore requires MLflow 3.14 or later on the client side.** A client below 3.14 has the old in-process hook and no plugin, so the two versions need opposite configuration and supporting both would double the surface for no gain. The server in this stack is already pinned at 3.14.0.
+
+The failure this creates, and which the requirements below must close: a user with a client below 3.14 who runs the enable path gets configuration that never produces a trace. Detection is mandatory, and the instruction on detection is to upgrade the client so the plugin runtime is available.
+
 ## Requirements
 
 ### Functional Requirements
@@ -130,6 +147,14 @@ flowchart TD
 18. The README **MUST** state that pi conversation tracing is not provided, why, and what is available for pi instead.
 19. The repository **MUST NOT** enable conversation tracing as a side effect of starting the stack.
 20. The enable path **MUST** write to a project-scoped or local-scoped Claude Code settings file (the directory passed to the `mlflow autolog claude` integration, defaulting to the current directory), and **MUST NOT** modify the user's global `~/.claude/settings.json`.
+21. The enable path **MUST** require an MLflow client at version 3.14 or later, because the plugin runtime that produces the traces exists only from that version.
+22. The enable path **MUST** detect the client version before it changes anything, and **MUST** refuse to configure a client below 3.14 rather than writing configuration that will never produce a trace.
+23. The refusal for a client below 3.14 **MUST** name the version found, state that the plugin runtime needs 3.14 or later, give the command that upgrades or runs a newer client, and state what to check afterwards.
+24. The enable path **MUST** configure through the client's own `mlflow autolog claude` command rather than writing the settings file by hand, so the plugin installation and the settings keys stay whatever that command decides they are.
+25. The enable path **MUST** state which directory it will configure before it acts, and **MUST NOT** silently rely on the command's default of the current directory.
+26. The enable path **MUST** write the configuration to the local settings file rather than the shared project settings file, so a committed file never enables the recording of another person's prompts by inheritance.
+27. The disable path **MUST** use the client's own disable option, which removes the configuration from both settings files, rather than reimplementing the removal.
+28. The verification path **MUST** confirm that a trace reaches the agent experiment after one real turn, because the plugin runtime produces it and a configuration that installs cleanly can still produce nothing.
 
 ### Non-Functional Requirements
 
