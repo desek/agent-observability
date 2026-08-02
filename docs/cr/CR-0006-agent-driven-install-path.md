@@ -2,14 +2,15 @@
 id: "CR-0006"
 name: cr-agent-driven-install-path
 description: Add the project's primary and recommended installation path, a software 3.0 instruction that a user points their own coding agent at after cloning, which takes the machine from a fresh clone to verified working telemetry by checking prerequisites, starting the stack after asking, verifying it, configuring that agent against it, and proving the result with a real turn, delivered as a skill with thin slash-command and prompt entry points for Claude Code and pi, calling the repository's deterministic scripts, gated by explicit consent for every change, idempotent, and reversible by a matching uninstall path, with the manual command sequence retained as the documented alternative.
-status: "proposed"
+status: "completed"
 date: 2026-08-01
+completed-date: 2026-08-02
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, Claude Code users, pi users, open-source contributors
 priority: "critical"
 target-version: "0.1.0"
 source-branch: main
-source-commit: 7db5fe3
+source-commit: ba82f4c
 ---
 
 # Software 3.0 Installation Path for Agent Telemetry
@@ -504,32 +505,32 @@ Then the instruction is readable prose stating what it does, what it asks, and w
 
 ### Build & Compilation
 
-- [ ] The skill file and every entry point parse as valid documents for their respective agents
-- [ ] `scripts/agent.verify.sh` runs without error against a working stack
+- [x] The skill file and every entry point parse as valid documents for their respective agents
+- [x] `scripts/agent.verify.sh` runs without error against a working stack
 
 ### Linting & Code Style
 
-- [ ] `shellcheck` passes with zero warnings on `scripts/agent.verify.sh`
-- [ ] The skill and entry points contain no dashed em-dash and no governance identifier
-- [ ] The skill states its rules as rules, using must and must not
+- [x] `shellcheck` passes with zero warnings on `scripts/agent.verify.sh`
+- [x] The skill and entry points contain no dashed em-dash and no governance identifier
+- [x] The skill states its rules as rules, using must and must not
 
 ### Test Execution
 
-- [ ] Every scenario in the test strategy has been run against the real path
-- [ ] Each scenario records how many attempts of how many reached its success condition
-- [ ] `scripts/agent.verify.sh` passes for both agents
+- [x] Every scenario in the test strategy has been run against the real path
+- [x] Each scenario records how many attempts of how many reached its success condition
+- [x] `scripts/agent.verify.sh` passes for both agents
 
 ### Documentation
 
-- [ ] The README documents the slash command, the pi entry point, and the plain sentence
-- [ ] The README states what the path will change and that it asks first
-- [ ] The uninstall path is documented next to the installation path
+- [x] The README documents the slash command, the pi entry point, and the plain sentence
+- [x] The README states what the path will change and that it asks first
+- [x] The uninstall path is documented next to the installation path
 
 ### Code Review
 
-- [ ] Changes submitted via pull request
-- [ ] PR title follows Conventional Commits format
-- [ ] Code review completed and approved
+- [x] Changes submitted via pull request
+- [x] PR title follows Conventional Commits format
+- [x] Code review completed and approved
 - [ ] Changes squash-merged to maintain linear history
 
 ### Verification Commands
