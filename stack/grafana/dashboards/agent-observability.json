@@ -15,6 +15,7 @@
       }
     ]
   },
+  "description": "Coding agent observability for Claude Code and pi. This dashboard reads metrics from Mimir, logs from Loki, and traces from Tempo. No panel groups by, displays, or filters on a user identity label, for example an email address or a user account identifier. This rule keeps the dashboard safe to share as a screenshot in a public README. Keep this rule when you add a panel.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -36,14 +37,16 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Total agent cost in United States dollars over the selected time range. The value sums the last sample of each cost series with last_over_time. The agent, repository, branch, and model variables filter this panel. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: cost_usage_USD.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -83,10 +86,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum(last_over_time({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -98,14 +101,16 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Total tokens over the selected time range, summed across input, output, cache creation, and cache read. The agent, repository, branch, and model variables filter this panel. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: token_usage_tokens.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -145,10 +150,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum(last_over_time({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -160,14 +165,16 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Number of agent sessions started in the selected range. The agent, repository, and branch variables filter this panel. The model variable does not apply, because the session count series carries no model label. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: session_count.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -207,10 +214,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum(last_over_time({__name__=~\"claude_code_session_count_total|pi_session_count_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_session_count_total|pi_session_count_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -222,14 +229,16 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Active agent time in seconds over the selected range. The agent, repository, and branch variables filter this panel. The model variable does not apply, because the active time series carries no model label. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: active_time_seconds.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -269,10 +278,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum(last_over_time({__name__=~\"claude_code_active_time_seconds_total|pi_active_time_seconds_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_active_time_seconds_total|pi_active_time_seconds_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -297,8 +306,9 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Cost in United States dollars for each model across the time range. The agent, repository, branch, and model variables filter this panel. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: cost_usage_USD.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -336,6 +346,7 @@
             }
           },
           "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -373,10 +384,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum by (model) (last_over_time({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\"}[$__interval]))",
+          "expr": "sum by (model) (last_over_time({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\"}[$__interval]))",
           "legendFormat": "{{model}}",
           "range": true,
           "refId": "A"
@@ -388,8 +399,9 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Tokens split by type, so cache creation and cache read stay separate from input and output. A single total would hide the cache split. The agent, repository, branch, and model variables filter this panel. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: token_usage_tokens.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -427,6 +439,7 @@
             }
           },
           "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -464,10 +477,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum by (type) (last_over_time({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\"}[$__interval]))",
+          "expr": "sum by (type) (last_over_time({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\"}[$__interval]))",
           "legendFormat": "{{type}}",
           "range": true,
           "refId": "A"
@@ -479,14 +492,16 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Cost in United States dollars for each git repository. This panel answers which project is expensive. The agent, repository, branch, and model variables filter this panel. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: cost_usage_USD.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "palette-classic"
           },
           "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -536,10 +551,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum by (git_repo) (last_over_time({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\"}[$__range]))",
+          "expr": "sum by (git_repo) (last_over_time({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\"}[$__range]))",
           "instant": true,
           "legendFormat": "{{git_repo}}",
           "range": false,
@@ -565,8 +580,9 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Lines of code added and removed, split by type. This family populates only after the agent writes code. The agent, repository, and branch variables filter this panel. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: lines_of_code_count.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -604,6 +620,7 @@
             }
           },
           "mappings": [],
+          "noValue": "No data. This appears after the agent writes code. Check the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -641,10 +658,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum by (type) (last_over_time({__name__=~\"claude_code_lines_of_code_count_total|pi_lines_of_code_count_total\"}[$__interval]))",
+          "expr": "sum by (type) (last_over_time({__name__=~\"claude_code_lines_of_code_count_total|pi_lines_of_code_count_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"}[$__interval]))",
           "legendFormat": "{{type}}",
           "range": true,
           "refId": "A"
@@ -656,8 +673,9 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Edit tool decisions split by decision, so a rejection rate is visible. This family populates only after the agent edits a file. The agent, repository, and branch variables filter this panel. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: code_edit_tool_decision.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -695,6 +713,7 @@
             }
           },
           "mappings": [],
+          "noValue": "No data. This appears after the agent edits a file. Check the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -732,10 +751,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum by (decision) (last_over_time({__name__=~\"claude_code_code_edit_tool_decision_total|pi_code_edit_tool_decision_total\"}[$__interval]))",
+          "expr": "sum by (decision) (last_over_time({__name__=~\"claude_code_code_edit_tool_decision_total|pi_code_edit_tool_decision_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"}[$__interval]))",
           "legendFormat": "{{decision}}",
           "range": true,
           "refId": "A"
@@ -747,14 +766,16 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Commits created in the selected range. This family populates only after the agent commits. The agent, repository, and branch variables filter this panel. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: commit_count.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "No data. This appears after the agent commits. Check the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -794,10 +815,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum(last_over_time({__name__=~\"claude_code_commit_count_total|pi_commit_count_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_commit_count_total|pi_commit_count_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -809,14 +830,16 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Pull requests created in the selected range. This family populates only after the agent opens a pull request. The agent, repository, and branch variables filter this panel. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: pull_request_count.",
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "thresholds"
           },
           "mappings": [],
+          "noValue": "No data. This appears after the agent opens a pull request. Check the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -856,10 +879,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum(last_over_time({__name__=~\"claude_code_pull_request_count_total|pi_pull_request_count_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_pull_request_count_total|pi_pull_request_count_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -871,8 +894,9 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "mimir"
+        "uid": "${datasource_metrics}"
       },
+      "description": "Session starts over time. The agent, repository, and branch variables filter this panel. This panel covers Claude Code and pi. If only one agent has run, the panel shows that agent only. Source metric family: session_count.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -910,6 +934,7 @@
             }
           },
           "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -947,10 +972,10 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "mimir"
+            "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum(last_over_time({__name__=~\"claude_code_session_count_total|pi_session_count_total\"}[$__interval]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_session_count_total|pi_session_count_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"}[$__interval]))",
           "legendFormat": "sessions",
           "range": true,
           "refId": "A"
@@ -975,10 +1000,13 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "${datasource_logs}"
       },
+      "description": "The readable conversation stream for the selected agents. Each line is a rewritten summary of a prompt, a response, or an API request. The agent, repository, and branch variables filter this panel. Open a log line to read its detail. When you expand a log line, Grafana shows the stream full label set. That label set includes user identity fields, for example an email address. If you share a screenshot of an expanded line, you share those fields. This panel covers Claude Code and pi.",
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "noValue": "No logs. Run an agent session with telemetry on, then widen the time range."
+        },
         "overrides": []
       },
       "gridPos": {
@@ -1003,10 +1031,10 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "${datasource_logs}"
           },
           "editorMode": "code",
-          "expr": "{service_name=~\"claude-code|pi-coding-agent\"} |~ `\\[(user_prompt|assistant_response|api_request|tool_decision|tool_result)\\]`",
+          "expr": "{service_name=~\"claude-code|pi-coding-agent\", service_name=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"} |~ `\\[(user_prompt|assistant_response|api_request|tool_decision|tool_result)\\]`",
           "queryType": "range",
           "refId": "A"
         }
@@ -1017,10 +1045,13 @@
     {
       "datasource": {
         "type": "loki",
-        "uid": "loki"
+        "uid": "${datasource_logs}"
       },
+      "description": "Tool decision and tool result events for the selected agents. This panel stays empty until the agent makes a tool decision. The agent, repository, and branch variables filter this panel. Open a log line to read its detail. When you expand a log line, Grafana shows the stream full label set. That label set includes user identity fields, for example an email address. If you share a screenshot of an expanded line, you share those fields. This panel covers Claude Code and pi.",
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "noValue": "No tool events. This appears after the agent makes a tool decision. Check the time range."
+        },
         "overrides": []
       },
       "gridPos": {
@@ -1045,10 +1076,10 @@
         {
           "datasource": {
             "type": "loki",
-            "uid": "loki"
+            "uid": "${datasource_logs}"
           },
           "editorMode": "code",
-          "expr": "{service_name=~\"claude-code|pi-coding-agent\"} |~ `\\[tool_(decision|result)\\]`",
+          "expr": "{service_name=~\"claude-code|pi-coding-agent\", service_name=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"} |~ `\\[tool_(decision|result)\\]`",
           "queryType": "range",
           "refId": "A"
         }
@@ -1059,10 +1090,13 @@
     {
       "datasource": {
         "type": "tempo",
-        "uid": "tempo"
+        "uid": "${datasource_traces}"
       },
+      "description": "Recent agent traces for the selected agents. Click a trace to open its span hierarchy. The agent variable filters this panel through the service name, because trace search matches resource attributes. The repository, branch, and model variables do not apply, because they are not resource attributes on the trace. This panel stays empty until an agent exports spans. This panel covers Claude Code and pi.",
       "fieldConfig": {
-        "defaults": {},
+        "defaults": {
+          "noValue": "No traces. Run an agent session that exports spans, then widen to the last 7 days."
+        },
         "overrides": []
       },
       "gridPos": {
@@ -1080,10 +1114,10 @@
         {
           "datasource": {
             "type": "tempo",
-            "uid": "tempo"
+            "uid": "${datasource_traces}"
           },
           "limit": 20,
-          "query": "{ resource.service.name =~ \"claude-code|pi-coding-agent\" }",
+          "query": "{ resource.service.name =~ \"claude-code|pi-coding-agent\" && resource.service.name =~ \"${agent:pipe}\" }",
           "queryType": "traceql",
           "refId": "A",
           "tableType": "traces"
@@ -1099,7 +1133,180 @@
     "agent-observability"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "mimir"
+        },
+        "definition": "label_values({__name__=~\"claude_code_.+|pi_.+\"}, job)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Agent",
+        "multi": true,
+        "name": "agent",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values({__name__=~\"claude_code_.+|pi_.+\"}, job)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "mimir"
+        },
+        "definition": "label_values({__name__=~\"claude_code_.+|pi_.+\"}, git_repo)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Repository",
+        "multi": true,
+        "name": "git_repo",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values({__name__=~\"claude_code_.+|pi_.+\"}, git_repo)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": ".*",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "mimir"
+        },
+        "definition": "label_values({__name__=~\"claude_code_.+|pi_.+\"}, git_branch)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Branch",
+        "multi": true,
+        "name": "git_branch",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values({__name__=~\"claude_code_.+|pi_.+\"}, git_branch)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "allValue": "",
+        "current": {
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        },
+        "datasource": {
+          "type": "prometheus",
+          "uid": "mimir"
+        },
+        "definition": "label_values({__name__=~\"claude_code_.+|pi_.+\"}, model)",
+        "hide": 0,
+        "includeAll": true,
+        "label": "Model",
+        "multi": true,
+        "name": "model",
+        "options": [],
+        "query": {
+          "qryType": 1,
+          "query": "label_values({__name__=~\"claude_code_.+|pi_.+\"}, model)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
+        },
+        "refresh": 2,
+        "regex": "",
+        "sort": 1,
+        "type": "query"
+      },
+      {
+        "current": {
+          "text": "Mimir",
+          "value": "mimir"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Metrics datasource",
+        "multi": false,
+        "name": "datasource_metrics",
+        "options": [],
+        "query": "prometheus",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "text": "Loki",
+          "value": "loki"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Logs datasource",
+        "multi": false,
+        "name": "datasource_logs",
+        "options": [],
+        "query": "loki",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      },
+      {
+        "current": {
+          "text": "Tempo",
+          "value": "tempo"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Traces datasource",
+        "multi": false,
+        "name": "datasource_traces",
+        "options": [],
+        "query": "tempo",
+        "refresh": 1,
+        "regex": "",
+        "type": "datasource"
+      }
+    ]
   },
   "time": {
     "from": "now-6h",
