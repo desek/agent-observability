@@ -240,7 +240,7 @@ Write `scripts/mlflow.verify.sh` and `scripts/mlflow.tracing.verify.sh`. Prove a
 
 ### Phase 5: Documentation
 
-Write the README MLflow section: address, experiments, enable, disable, what is stored, where, deletion, and the pi gap. Write the troubleshooting entries, including the moved-clone cause and the missing-client cause.
+Write the README MLflow section: address, experiments, enable, disable, what is stored, where, deletion, and the pi gap. Write the troubleshooting entries, including the missing-client cause and the client-below-3.14 cause. The moved-clone cause is retired with Risk 3.
 
 ### Implementation Flow
 
@@ -470,7 +470,7 @@ Then the hook and keys are written to that directory's .claude/settings.json
 ### Documentation
 
 - [ ] The README MLflow section covers address, experiments, enable, disable, privacy, deletion, and the pi gap
-- [ ] Troubleshooting covers the missing-client cause and the moved-clone cause
+- [ ] Troubleshooting covers the missing-client cause and the client-below-3.14 cause. The moved-clone cause is retired with Risk 3, because the implemented design writes no path into the settings and a moved clone cannot break tracing
 
 ### Code Review
 
@@ -517,11 +517,15 @@ shellcheck scripts/mlflow.*.sh
 **Impact:** medium; tracing silently does nothing at the end of each turn
 **Mitigation:** Three resolution branches, a hook that exits with an actionable message naming every option, and a verification script whose whole purpose is to catch exactly this before the user assumes it works.
 
-### Risk 3: The user moves or deletes the clone after enabling
+### Risk 3: The user moves or deletes the clone after enabling. RETIRED, the design no longer creates it
 
-**Likelihood:** medium
-**Impact:** medium; the hook points at a path that no longer exists
-**Mitigation:** The hook path is written as an absolute path, the hook fails with a message naming this cause, and the README troubleshooting section lists it first among causes of tracing stopping unexpectedly.
+**Likelihood:** none under the implemented design
+**Impact:** none
+**Status:** This risk belonged to the design this change request began with, where an end-of-turn hook in the user's settings named an absolute path to a script inside this repository. Moving the clone would then have broken tracing with no obvious cause.
+
+The MLflow 3.14 design does not write a path into the settings at all. The configuration the client writes was read after a real run and contains a marketplace reference to the `mlflow/mlflow` repository, an enabled plugin, and three environment keys. A search of that file for the clone path and for this repository's name returns zero matches. The plugin runtime is fetched from the marketplace, not from the clone, so a user who moves or deletes this repository keeps working tracing.
+
+The requirement that the troubleshooting section document a moved clone is therefore retired with this risk. Documenting a failure that the implemented design cannot produce would mislead a reader into looking for the wrong cause.
 
 ### Risk 4: Conversation data accumulates without bound
 
