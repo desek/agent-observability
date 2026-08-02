@@ -2,14 +2,14 @@
  * @agents-index Parses PI_OTEL_ENABLE, the standard OTEL_* exporter/endpoint/
  *   protocol/interval/resource variables, plus Claude-Code-analogous content and
  *   cardinality opt-in flags, into a single typed config with gRPC
- *   localhost:24317 (the HAProxy edge-proxy port) defaults for the
+ *   localhost:4317 (the standard OTLP gRPC port) defaults for the
  *   pi-opentelemetry pi extension.
  *
  * Why: every downstream module (providers, metrics/events/traces emitters) must
  * read configuration the same way and honour identical semantics to Claude
  * Code's telemetry (FR4, FR5, FR9, FR10, FR11). Centralizing the environment
  * parsing here keeps those modules pure and independently testable, and makes
- * the gRPC-24317 default and opt-in-default-off flag behaviour a single source of
+ * the gRPC-4317 default and opt-in-default-off flag behaviour a single source of
  * truth rather than something re-derived per signal.
  */
 
@@ -120,12 +120,16 @@ export interface OtelParityConfig {
 }
 
 /**
- * Default OTLP endpoint: the single HAProxy edge-proxy loopback port that fronts
- * the local LGTM stack. HAProxy accepts prior-knowledge h2c gRPC on
- * this cleartext port and routes it to Alloy's gRPC receiver, the same transport
- * Claude Code exports over.
+ * Default OTLP endpoint: the OpenTelemetry standard OTLP gRPC receiver address,
+ * `localhost:4317`. This is a promise to every stranger who installs the
+ * package: a plain OTLP collector (an OpenTelemetry Collector, or Grafana Alloy
+ * with its default `otelcol.receiver.otlp`) listens here, so the extension
+ * exports to a working target with no configuration. A user who fronts the
+ * collector behind a different address, such as this project's single-port edge
+ * proxy, points the extension at it through OTEL_EXPORTER_OTLP_ENDPOINT rather
+ * than inheriting a project-specific port as a package default.
  */
-export const DEFAULT_OTLP_ENDPOINT = "http://localhost:24317";
+export const DEFAULT_OTLP_ENDPOINT = "http://localhost:4317";
 
 /** Default OTLP protocol: gRPC, matching Claude Code's transport. */
 export const DEFAULT_OTLP_PROTOCOL = "grpc";
@@ -270,7 +274,7 @@ function resolveSignal(
  * resolved {@link OtelParityConfig}.
  *
  * All defaults follow Claude Code parity: gRPC transport on
- * http://localhost:24317 (the HAProxy edge-proxy port) (FR4),
+ * http://localhost:4317 (the standard OTLP gRPC port) (FR4),
  * service.name `pi-coding-agent` (FR3), and every content/cardinality
  * flag off-when-unset (FR9, FR10). No exporter is constructed here; this is pure
  * parsing so it stays testable and side-effect free.

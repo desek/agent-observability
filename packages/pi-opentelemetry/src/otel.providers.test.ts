@@ -1,12 +1,14 @@
 /**
  * @agents-index Unit tests for otel.providers and the package manifest: verifies
  *   the shared Resource defaults service.name to pi-coding-agent and honours
- *   OTEL_SERVICE_NAME, and that package.json declares the nine pinned OTLP-gRPC
- *   OpenTelemetry dependencies.
+ *   OTEL_SERVICE_NAME, and that package.json declares the eight OTLP-gRPC SDK and
+ *   exporter dependencies while the OpenTelemetry API is a peer dependency.
  *
  * Why: the Resource carries the identity every signal is grouped by (FR3) and the
- * pinned gRPC exporter deps make the build reproducible (FR2, NFR3); these tests
- * pin both so a rename or a dropped dependency is caught before it reaches a run.
+ * SDK/exporter deps make the build reproducible (FR2, NFR3); the API is a peer so
+ * a second copy in the host process cannot silently break instrumentation
+ * registration (FR11). These tests catch a rename, a dropped dependency, or a
+ * regression that reintroduces the API as an ordinary dependency.
  */
 
 import assert from "node:assert/strict";
@@ -31,9 +33,11 @@ test("declares-grpc-exporter-deps", () => {
   const pkgPath = fileURLToPath(new URL("../package.json", import.meta.url));
   const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
     dependencies: Record<string, string>;
+    peerDependencies: Record<string, string>;
   };
+  // The SDK and exporter packages stay ordinary dependencies, with tilde ranges
+  // that admit patch updates so a security fix needs no release of this package.
   const required = [
-    "@opentelemetry/api",
     "@opentelemetry/api-logs",
     "@opentelemetry/resources",
     "@opentelemetry/sdk-metrics",
@@ -45,7 +49,18 @@ test("declares-grpc-exporter-deps", () => {
   ];
   for (const dep of required) {
     assert.ok(pkg.dependencies[dep], `missing dependency ${dep}`);
-    // Pinned to an exact version (no range specifier) for reproducibility.
-    assert.match(pkg.dependencies[dep], /^\d+\.\d+\.\d+$/, `${dep} not pinned`);
+    // A tilde-pinned patch range (~x.y.z) for reproducibility with patch updates.
+    assert.match(pkg.dependencies[dep], /^~\d+\.\d+\.\d+$/, `${dep} not tilde-pinned`);
   }
+  // The API package is a peer, never an ordinary dependency: two copies in one
+  // process silently break instrumentation registration (FR11).
+  assert.ok(
+    pkg.peerDependencies["@opentelemetry/api"],
+    "@opentelemetry/api must be a peer dependency",
+  );
+  assert.equal(
+    pkg.dependencies["@opentelemetry/api"],
+    undefined,
+    "@opentelemetry/api must not also be an ordinary dependency",
+  );
 });

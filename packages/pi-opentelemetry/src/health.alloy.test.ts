@@ -13,10 +13,12 @@ import { test } from "node:test";
 
 import { DEFAULT_ALLOY_HEALTH_URL, probeAlloyHealthy } from "./health.alloy.ts";
 
-test("default-health-url-proxied", () => {
-  // Alloy is no longer published on :12345; the default health probe must target
-  // the proxied /alloy/-/healthy path on the single HAProxy port.
-  assert.equal(DEFAULT_ALLOY_HEALTH_URL, "http://localhost:24317/alloy/-/healthy");
+test("default-health-url-is-alloy-native-default", () => {
+  // The probe default must target Grafana Alloy's own default HTTP health route,
+  // localhost:12345/-/healthy, not a project-specific proxy address. The URL is
+  // asserted against the exported constant so the default lives in one place;
+  // the literal here documents what that constant is expected to be.
+  assert.equal(DEFAULT_ALLOY_HEALTH_URL, "http://localhost:12345/-/healthy");
 });
 
 /** Start a localhost HTTP server with a given handler; resolve its base URL. */

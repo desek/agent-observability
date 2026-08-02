@@ -1,9 +1,42 @@
 {
-  "name": "pi-pi-opentelemetry",
+  "name": "@desek/pi-opentelemetry",
   "version": "0.1.0",
-  "private": true,
-  "description": "In-repo pi extension that emits OpenTelemetry metrics, log events, and traces with feature parity to Claude Code's built-in telemetry, exported over OTLP gRPC to Alloy via the local HAProxy edge proxy on localhost:24317.",
+  "description": "pi coding-agent extension that exports OpenTelemetry metrics, log events, and traces over OTLP gRPC, at parity with Claude Code's built-in telemetry. It installs as a no-op: it emits nothing unless enabled, stays silent when no collector is reachable, and never blocks or crashes the agent.",
+  "license": "Apache-2.0",
+  "author": "desek",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/desek/agent-observability.git",
+    "directory": "packages/pi-opentelemetry"
+  },
+  "homepage": "https://github.com/desek/agent-observability/tree/main/packages/pi-opentelemetry#readme",
+  "bugs": {
+    "url": "https://github.com/desek/agent-observability/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "coding-agent",
+    "opentelemetry",
+    "otel",
+    "otlp",
+    "observability",
+    "telemetry"
+  ],
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "files": [
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "test": "node --experimental-strip-types --test 'src/*.test.ts'"
   },
@@ -12,15 +45,17 @@
       "./src/index.ts"
     ]
   },
+  "peerDependencies": {
+    "@opentelemetry/api": "^1.9.0"
+  },
   "dependencies": {
-    "@opentelemetry/api": "1.9.1",
-    "@opentelemetry/api-logs": "0.220.0",
-    "@opentelemetry/resources": "2.9.0",
-    "@opentelemetry/sdk-metrics": "2.9.0",
-    "@opentelemetry/sdk-logs": "0.220.0",
-    "@opentelemetry/sdk-trace-base": "2.9.0",
-    "@opentelemetry/exporter-metrics-otlp-grpc": "0.220.0",
-    "@opentelemetry/exporter-logs-otlp-grpc": "0.220.0",
-    "@opentelemetry/exporter-trace-otlp-grpc": "0.220.0"
+    "@opentelemetry/api-logs": "~0.220.0",
+    "@opentelemetry/resources": "~2.9.0",
+    "@opentelemetry/sdk-metrics": "~2.9.0",
+    "@opentelemetry/sdk-logs": "~0.220.0",
+    "@opentelemetry/sdk-trace-base": "~2.9.0",
+    "@opentelemetry/exporter-metrics-otlp-grpc": "~0.220.0",
+    "@opentelemetry/exporter-logs-otlp-grpc": "~0.220.0",
+    "@opentelemetry/exporter-trace-otlp-grpc": "~0.220.0"
   }
 }

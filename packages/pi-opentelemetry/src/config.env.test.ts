@@ -1,6 +1,6 @@
 /**
- * @agents-index Unit tests for config.env: verifies the gRPC localhost:24317
- *   (HAProxy edge-proxy port) defaults, the PI_OTEL_ENABLE master switch, and
+ * @agents-index Unit tests for config.env: verifies the gRPC localhost:4317
+ *   (standard OTLP gRPC port) defaults, the PI_OTEL_ENABLE master switch, and
  *   that the standard OTEL_*
  *   exporter/interval/resource variables are parsed into the typed config.
  *
@@ -30,12 +30,15 @@ function stubProbe(healthy: boolean) {
   return { probe, calls };
 }
 
-test("defaults-to-grpc-single-port", () => {
+test("defaults-to-grpc-standard-otlp-port", () => {
+  // The endpoint default is asserted against the exported constant, not a port
+  // literal, so the default lives in exactly one place and this test cannot
+  // silently disagree with the code it guards.
   const config = loadConfig({});
   assert.equal(config.exporters.metrics.protocol, DEFAULT_OTLP_PROTOCOL);
   assert.equal(config.exporters.metrics.protocol, "grpc");
   assert.equal(config.exporters.logs.endpoint, DEFAULT_OTLP_ENDPOINT);
-  assert.equal(config.exporters.traces.endpoint, "http://localhost:24317");
+  assert.equal(config.exporters.traces.endpoint, DEFAULT_OTLP_ENDPOINT);
   assert.equal(config.serviceName, "pi-coding-agent");
 });
 

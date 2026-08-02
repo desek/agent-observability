@@ -12,12 +12,16 @@
  */
 
 /**
- * Alloy's default health route, served through the single HAProxy edge-proxy
- * loopback port. Alloy is no longer published on :12345; the proxy maps
- * the `/alloy/` prefix to Alloy's UI/health, so `/alloy/-/healthy` reaches Alloy's
- * `/-/healthy` over the internal network.
+ * Grafana Alloy's native default health route: its HTTP server listens on
+ * `localhost:12345` and serves `/-/healthy`. This is the upstream Alloy default,
+ * a promise a stranger can verify against Alloy's own documentation, so an
+ * unconfigured machine that happens to run a default Alloy is detected and an
+ * unconfigured machine that runs nothing stays silent. A collector fronted
+ * behind a different address, such as this project's single-port edge proxy, is
+ * reached by setting the probe URL or by enabling export explicitly, rather than
+ * by inheriting a project-specific port and path as a package default.
  */
-export const DEFAULT_ALLOY_HEALTH_URL = "http://localhost:24317/alloy/-/healthy";
+export const DEFAULT_ALLOY_HEALTH_URL = "http://localhost:12345/-/healthy";
 
 /** Default probe timeout: short so it never noticeably delays pi startup. */
 export const DEFAULT_PROBE_TIMEOUT_MS = 500;
@@ -29,8 +33,8 @@ export const DEFAULT_PROBE_TIMEOUT_MS = 500;
  * Resolves true only on a 2xx response; any network error, non-2xx status, or
  * timeout resolves false so the caller treats the collector as absent.
  *
- * @param url - Health endpoint to probe; defaults to Alloy via the HAProxy
- *   edge-proxy port at localhost:24317/alloy/-/healthy.
+ * @param url - Health endpoint to probe; defaults to Grafana Alloy's native
+ *   health route at localhost:12345/-/healthy.
  * @param timeoutMs - Abort timeout in milliseconds.
  * @returns True when the endpoint responds 2xx within the timeout, else false.
  */
