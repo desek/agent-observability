@@ -47,6 +47,7 @@ Every service is reached through the single published port:
 | Mimir | Metric store, Prometheus-compatible API. | `http://localhost:24317/prometheus/...` |
 | Tempo | Trace store. | `http://localhost:24317/tempo/...` |
 | MLflow | Experiment tracking UI and REST. | `http://localhost:24317/mlflow/` |
+| MLflow OTLP ingest | Accepts OpenTelemetry conversation traces from the pi extension. The prefix is rewritten away before it reaches MLflow, so the unprefixed `/v1/traces` still belongs to Alloy. | `http://localhost:24317/mlflow-otlp/v1/traces` |
 
 ## Components
 

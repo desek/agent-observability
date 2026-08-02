@@ -58,15 +58,27 @@ stack to another port. Place `.mcp.json` at that project's root to share the
 read-only Grafana tools with everyone who clones it, or add its `grafana` entry
 to your agent's user-scope configuration for the whole machine.
 
-## The pi telemetry extension
+## The pi extensions
 
-The stack renders pi's signals, but pi emits none on its own. The
-`@desek/pi-opentelemetry` package exports pi's metrics, log events, and traces
-over OTLP at parity with Claude Code's built-in telemetry. It lives at
-`packages/pi-opentelemetry/` and is published to npm; its own
-[README](../packages/pi-opentelemetry/README.md) is the full reference for every
-configuration variable and every emitted signal, and the posture that governs
-what it records is stated in the [privacy document](privacy.md).
+The stack renders pi's signals, but pi emits none on its own. Claude Code has
+built-in telemetry and a conversation-tracing plugin; pi has neither, so this
+repository publishes two independent pi extensions that close the gap. Each lives
+under `packages/`, is a single-purpose npm package, and imports nothing from the
+other. The posture that governs what either records is stated once in the
+[privacy document](privacy.md).
+
+| Package | Lives in | What it does |
+|---------|----------|--------------|
+| `@desek/pi-opentelemetry` | `packages/pi-opentelemetry/` | Exports pi's metrics, log events, and traces over OTLP at parity with Claude Code's built-in telemetry. This is what populates the dashboard for pi. |
+| `@desek/pi-mlflow-tracing` | `packages/pi-mlflow-tracing/` | Turns each pi agent loop into an MLflow conversation trace, so a pi session becomes readable turn by turn in the same view Claude Code's conversations use. Off until you set its master switch, and silent when no tracking server is reachable. |
+
+Each package's own README is the full reference: the
+[pi-opentelemetry README](../packages/pi-opentelemetry/README.md) documents every
+configuration variable and every emitted signal, and the
+[pi-mlflow-tracing README](../packages/pi-mlflow-tracing/README.md) documents what
+a conversation trace records, how to switch it on and off, and how to point it at
+a tracking server elsewhere. Enable pi conversation tracing with
+`scripts/mlflow.tracing.pi.sh`, which discloses what it stores before it writes.
 
 ## Next
 

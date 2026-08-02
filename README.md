@@ -90,7 +90,6 @@ statement of what that means.
 * It is a single-user local stack, not a multi-tenant deployment.
 * It has no alerting.
 * It has no retention policy: data stays until you delete it.
-* Conversation tracing covers Claude Code only, not pi.
 * It is not a hosted service, and it publishes only a loopback port.
 
 A reader who needs any of those learns it here in ten seconds instead of an hour.

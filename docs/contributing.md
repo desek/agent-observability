@@ -37,7 +37,8 @@ individual targets.
 | `Makefile` | `make ci`, the single check entry point. |
 | `LICENSE` | The Apache-2.0 license. |
 | `stack/` | Per-service configuration: Alloy, Grafana, HAProxy, Loki, Mimir, Tempo, and the thin MLflow image build. |
-| `packages/pi-opentelemetry/` | The `@desek/pi-opentelemetry` pi extension: source, tests, and its published-package manifest. |
+| `packages/pi-opentelemetry/` | The `@desek/pi-opentelemetry` pi extension: pi's metrics, logs, and traces over OTLP. Source, tests, and its published-package manifest. |
+| `packages/pi-mlflow-tracing/` | The `@desek/pi-mlflow-tracing` pi extension: pi conversations as MLflow traces. Source, tests, and its published-package manifest. |
 | `agents/` | The opt-in OpenTelemetry content flags and the optional git-provenance direnv helper. |
 | `scripts/` | Start, verify, seed, capture, deep-link, and verification scripts. |
 | `docs/` | The reader documentation the front page links to. |
