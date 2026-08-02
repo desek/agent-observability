@@ -62,7 +62,20 @@ store_gateway:
 limits:
   # Accept OTLP resource attributes as target_info / labels and allow
   # back-dated and future samples during local testing.
-  out_of_order_time_window: 1h
+  #
+  # The window is 72h rather than the 1h a live-ingest stack would need,
+  # because this stack also ingests history rather than only a live stream.
+  # Two cases need it. A demonstration seed writes a plausible span of past
+  # activity so the dashboard shows a curve rather than a spike at the right
+  # edge. And an agent transcript is read after the fact, so its samples carry
+  # the timestamps of the session rather than the moment of ingestion. A 1h
+  # window silently rejects both: the write is accepted, the sample is dropped,
+  # and the panel stays empty with no error anywhere.
+  #
+  # 72h covers a long weekend of history, which is the span a local user
+  # reviews. It costs memory in the ingester, which is acceptable for a
+  # single-user local stack and would not be for a shared one.
+  out_of_order_time_window: 72h
   creation_grace_period: 10m
   # Promote git provenance resource attributes (stamped by the repo's .envrc)
   # onto every ingested series as git_org/git_repo/git_branch/git_path labels;
