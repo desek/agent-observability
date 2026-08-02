@@ -495,23 +495,54 @@ PY
 do_seed() {
 	require_stack
 	# Samples are stamped within the last few minutes, spread so the time-series
-	# panels show more than a single point. Mimir's out-of-order window (1h) bounds
-	# how far back a new series may start, so seeded activity is recent rather than
-	# spread over literal days; the session set stands in for the several-days
-	# volume the dataset represents.
-	local now_s spread row agent repo branch model sid cost_cents ts_ns i=0
+	# panels show more than a single point.
+	# Seeded activity spans session_step_seconds between sessions, which puts the
+	# oldest session about one and a half hours back for the current
+	# session set. The span is bounded by the narrowest backend, and each bound
+	# below was measured against the running stack rather than read from a
+	# default:
+	#
+	#   Loki   is the binding constraint at two hours. Its ingester refuses an
+	#          entry older than that with "entry too far behind", governed by
+	#          max_chunk_age and NOT by reject_old_samples, which is set false
+	#          here and does not govern this check. The window is measured from
+	#          the newest entry already in the stream, so a stream that already
+	#          holds recent entries has a tighter window than a fresh one: a
+	#          first probe against a new stream accepted seven hours, while a
+	#          re-seed of an established stream accepted two. The seed must
+	#          assume the established case, because that is what a second run is.
+	#   Mimir  accepts far more, up to out_of_order_time_window, set to 72h here.
+	#          A span under twelve hours has a second benefit: the querier reads
+	#          it from the ingester rather than the long-term store, so it is
+	#          visible immediately instead of after the bucket store
+	#          synchronises, which takes up to fifteen minutes.
+	#   Tempo  does not surface a back-dated trace at all. A trace written even
+	#          ten minutes in the past is accepted with a success status and is
+	#          never searchable. Traces are therefore written at the present
+	#          moment rather than at the session's timestamp, which is why the
+	#          trace call below uses its own value. The trace panel is a table of
+	#          recent traces rather than a time series, so this costs nothing.
+	#
+	# Widening the picture past two hours therefore means raising Loki's
+	# max_chunk_age, not changing this number.
+	local session_step_seconds=480
+	local now_s spread row agent repo branch model sid cost_cents ts_ns trace_ts_ns i=0
 	now_s="$(date +%s)"
 	info "seeding synthetic telemetry into the stack on port ${edge_port} (marker git_org=${DEMO_ORG})"
 	for row in "${sessions[@]}"; do
 		# shellcheck disable=SC2086
 		set -- $row
 		agent="$1"; repo="$2"; branch="$3"; model="$4"; sid="$5"; cost_cents="$6"
-		spread=$(( i * 210 ))
+		spread=$(( i * session_step_seconds ))
 		ts_ns="$(( (now_s - spread) * 1000000000 ))"
 		seed_session_metrics "$agent" "$repo" "$branch" "$model" "$sid" "$cost_cents" "$ts_ns" "value"
 		seed_session_logs "$agent" "$repo" "$branch" "$model" "$sid" "$ts_ns"
 		if [ "$((i % 3))" -eq 0 ]; then
-			seed_session_trace "$agent" "$repo" "$branch" "$ts_ns"
+			# Present-moment timestamp, not the session's. Tempo does not surface a
+			# back-dated trace, so a trace written at the session's own time would
+			# be accepted and then never appear.
+			trace_ts_ns="$(( $(date +%s) * 1000000000 ))"
+			seed_session_trace "$agent" "$repo" "$branch" "$trace_ts_ns"
 		fi
 		i=$((i + 1))
 	done

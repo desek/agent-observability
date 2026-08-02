@@ -70,9 +70,30 @@ worktree: "/Users/desek/Repo/desek/experiments/agent-observability"
 
   `make ci` exits 0, exit code read rather than inferred.
 
+### Attempt 3 — fit the seeded timeline inside the narrowest backend rather than widening three of them
+
+* **Change:** `scripts/demo.seed.sh`. The gap between seeded sessions moved from 210 seconds to 480, so the twelve-session set now spans about an hour and a half instead of thirty-eight minutes. Traces are written at the present moment rather than at their session's timestamp. The comment above the loop records the measured bound for each backend and which one binds.
+
+* **Reason:** Attempt 1 widened the metric store and revealed that the metric store was not the only thing rejecting history. Rather than widen Loki and Tempo as well, this attempt asks what span all three already accept, and uses it. A demonstration dataset is not worth changing three storage settings for.
+
+* **Evidence:** each backend was probed, and the three answers differ enough that the naive assumption would have been wrong in both directions.
+
+  Loki binds. Its ingester refuses an entry older than about two hours with "entry too far behind", and this is governed by `max_chunk_age`, not by `reject_old_samples`, which is set false here and does not govern this check. The window is measured from the newest entry already in the stream, so it is tighter for an established stream than a fresh one: a first probe against a brand-new stream accepted seven hours, while a re-seed of an established stream accepted two. The seed must assume the established case, because that is what every run after the first is. A 5.5 hour span produced 91 refused entries; a 1.74 hour span still produced 12, because the boundary is anchored to a chunk edge rather than sliding with the clock; 1.5 hours produces none.
+
+  Tempo does not accept history at all. Traces pushed 10 minutes, 1 hour, 3 hours, and 6 hours in the past each returned HTTP 200, Tempo logged no complaint, and none was searchable after four minutes, while a trace written at the present moment was searchable within forty seconds. That is the least honest of the three failure modes, and it is why traces are now written at the present rather than at their session's time. The trace panel is a table of recent traces rather than a time series, so this costs the picture nothing.
+
+  Mimir is no longer the constraint after Attempt 1, and a span this short has a second benefit that attempt identified: under twelve hours the querier reads from the ingester rather than the long-term store, so seeded history is visible immediately instead of after the bucket store synchronises.
+
+  After the change: zero refused entries, twenty traces searchable, and the dashboard's own committed expressions still return non-zero, 2.14 dollars across twelve sessions. `make ci` exits 0 and `shellcheck` is clean.
+
+  One property worth knowing before capturing. Repeated seeds accumulate rather than replace: the metric span reads four hours here because series from this session's earlier, wider attempts are still in the store, and neither Loki nor Mimir offers a surgical delete. A capture run starts from `docker compose down -v` and one seed, which is the documented procedure, and that produces the clean hour and a half.
+
+* **Supersedes:** nothing. Attempt 1 stands: the 72 hour window is still what makes a back-dated metric sample land at all, and this attempt chooses a span well inside it rather than undoing it.
+
 ## What Stands Now
 
 * The metric store accepts back-dated samples up to 72 hours. Verified at 6, 24, 48, and 71 hours, with 100 hours correctly refused.
+* The seeded dataset spans about an hour and a half, which is the widest span every backend accepts without changing a storage setting. Loki is the binding constraint at roughly two hours, anchored to a chunk edge. Tempo accepts no history at all, so seeded traces are written at the present moment.
 * Back-dated samples older than roughly twelve hours are not immediately queryable. They become visible after the block ships and the store synchronises, which is up to fifteen minutes on the current settings. Anything that seeds history and then reads or photographs it must account for that delay, or the settings that govern it must change.
 * The project's front page is titled "Agent Observability Stack", matching the repository name. The local-first posture and the coding-agent workload are stated in the opening sentence rather than in the title.
 * The reader documentation is a set of eight files, not one. `README.md` is a 100-line landing page carrying the pictures, what you get, the one-command start, the map, and the boundaries. Seven documents under `docs/` each answer one question and are each the single home for that answer.
