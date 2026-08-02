@@ -60,13 +60,15 @@
 #
 # Environment:
 #   MLFLOW_HOOK_UVX_SPEC  pip requirement specifier for the ephemeral branch,
-#                         default `mlflow<3.14`. The 3.14 release moved the
-#                         in-process stop-hook to a marketplace plugin, so an
-#                         unpinned ephemeral client would print a migration
-#                         notice instead of writing a trace; the pin keeps the
-#                         ephemeral branch on a client that still processes the
-#                         transcript. Override to move the pin without editing
-#                         the resolution logic.
+#                         default `mlflow>=3.14`. The 3.14 release moved the
+#                         in-process stop-hook to a marketplace plugin, and the
+#                         `mlflow autolog claude` setup command from that release
+#                         installs the plugin and writes the settings the plugin
+#                         runtime reads. The enable path (mlflow.autolog.claude.sh)
+#                         needs a client at 3.14 or later so that setup command is
+#                         present, so the ephemeral branch is pinned to it.
+#                         Override to move the pin without editing the resolution
+#                         logic.
 #   EDGE_PORT             Loopback host port the edge proxy publishes. Read from
 #                         the shell first, then from .env, then defaults to
 #                         24317. Used only to name the tracking address in the
@@ -85,10 +87,12 @@ usage() {
 }
 
 # --- Configuration -----------------------------------------------------------
-# The ephemeral branch pins the client version because the 3.14 release moved
-# the stop-hook out of the client into a marketplace plugin, which would print
-# a migration notice rather than write a trace.
-uvx_spec="${MLFLOW_HOOK_UVX_SPEC:-mlflow<3.14}"
+# The ephemeral branch pins the client version to 3.14 or later because that is
+# the release whose `mlflow autolog claude` setup command installs the marketplace
+# plugin and writes the settings the plugin runtime reads. The enable path
+# (mlflow.autolog.claude.sh) requires that command, so an ephemeral client older
+# than 3.14 would be unusable for setup.
+uvx_spec="${MLFLOW_HOOK_UVX_SPEC:-mlflow>=3.14}"
 
 # The subcommand the installed Stop hook is meant to run. Explicit arguments on
 # the command line replace it, which is what makes --which and testing possible
