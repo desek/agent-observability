@@ -1,0 +1,62 @@
+# direnvrc: optional direnv library for git-provenance telemetry, from this repo.
+#
+# @agents-index: Optional direnv library whose `use pi_otel` loads the shared non-secret OTEL flags and stamps per-repo git provenance onto OTEL_RESOURCE_ATTRIBUTES.
+#
+# This repository masters this file. There is no link script here, so a user
+# wires it up by hand. Two manual steps make `use pi_otel` available in any
+# repository:
+#   1. Make this library visible to direnv. Copy this file to
+#      ~/.config/direnv/direnvrc, or symlink it there.
+#   2. Make the shared flags visible to the library. Copy agents/pi-otel.env to
+#      ~/.config/pi/pi-otel.env, or symlink it there. The library sources that
+#      path when it exists, and no-ops when it does not.
+# After both steps, any repository whose .envrc calls `use pi_otel` inherits the
+# shared exporter flags and the correct per-repo provenance.
+#
+# The library loads the shared non-secret OTEL_LOG_* and OTEL_METRICS_INCLUDE_*
+# flags and stamps per-repo git provenance onto OTEL_RESOURCE_ATTRIBUTES for
+# Claude Code. The pi extension self-derives provenance, so it does not need the
+# stamp. The library deliberately does not set the master switch and does not set
+# the endpoint. It leaves the pi extension's dynamic defaults in control.
+#
+# This file carries no secret. Any credential value lives only in the gitignored
+# .env file, never here.
+
+# Load the shared OTEL content and cardinality flags, then stamp git provenance
+# for the repository.
+#
+# Call this from a repository-root .envrc as `use pi_otel`. direnv runs an .envrc
+# with $PWD set to that file's directory. So, when this runs from a
+# repository-root .envrc, the git commands below resolve the correct repository
+# and give correct per-repo provenance even after you cd into a subdirectory.
+#
+# The function sources the shared, non-secret content and cardinality flags from
+# ~/.config/pi/pi-otel.env, the path where you place agents/pi-otel.env by the
+# manual step above. It does not set the master switch and does not set the OTLP
+# endpoint. The pi extension defaults both. It defaults the endpoint to the local
+# edge proxy on EDGE_PORT, which defaults to 24317, and enables itself when Alloy
+# is healthy. Provenance is exported for Claude Code, which cannot self-derive
+# it. The pi extension uses the stamp when present and self-derives otherwise, so
+# the environment value wins.
+#
+# Side effects: exports the OTEL_LOG_* and OTEL_METRICS_INCLUDE_* flags from
+# pi-otel.env, and OTEL_RESOURCE_ATTRIBUTES (git.org, git.repo, git.branch,
+# git.path).
+use_pi_otel() {
+  # Shared content and cardinality flags. This is a no-op if the file is absent,
+  # for example before you have placed pi-otel.env on a fresh machine.
+  dotenv_if_exists "$HOME/.config/pi/pi-otel.env"
+
+  # Per-repo git provenance, computed from $PWD (the repository root that holds
+  # this .envrc).
+  local url repo org branch
+  url=$(git remote get-url origin 2>/dev/null)
+  repo=$(basename -s .git "$url" 2>/dev/null)
+  [ -n "$repo" ] || repo=$(basename "$PWD")
+  # Org is the path segment before the repo name. This handles the
+  # git@host:org/repo.git and the https://host/org/repo(.git) remote forms alike.
+  org=$(printf '%s' "$url" | sed -E 's#\.git$##; s#.*[:/]([^/]+)/[^/]+$#\1#')
+  branch=$(git branch --show-current 2>/dev/null)
+
+  export OTEL_RESOURCE_ATTRIBUTES="git.org=${org},git.repo=${repo},git.branch=${branch},git.path=${PWD}"
+}
