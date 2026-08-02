@@ -123,11 +123,15 @@ usage.
 make ci
 ```
 
-It validates the compose file, validates the HAProxy configuration inside the
-pinned image, lints every script, and runs every verification script. It exits
-non-zero if any check fails. A check that needs a running stack is skipped with a
-named report when the stack is down, and a skip is never reported as a pass. Run
-`make help` to list the individual targets.
+It runs these checks in order: a self-test, compose file validation, HAProxy
+configuration validation in the pinned image on the compose network, a shell
+lint over every script, and every verification script. It exits non-zero if any
+check fails. On every run the self-test proves a failing check exits non-zero,
+so a check can never report confidence it has not earned. A check that needs a
+running stack is skipped with a named report when the stack is down, and a skip
+is never reported as a pass. The HAProxy check resolves backend names on the
+compose network, so it is skipped until you start the stack once. Run `make
+help` to list the individual targets.
 
 ## Repository layout
 
@@ -182,6 +186,14 @@ Two mechanisms set these labels on the agent side:
    repository at the working directory.
 2. The pi OpenTelemetry extension derives the four values itself, from the
    repository of the directory where you launch pi. It needs no stamp.
+
+Claude Code's settings `env` block outranks the process environment. If a Claude
+Code settings file already pins `OTEL_RESOURCE_ATTRIBUTES` or the OTLP endpoint,
+a shell export does not change the value Claude Code uses. This matters when you
+run more than one stack, or when telemetry is already configured for another
+endpoint. To redirect Claude Code without editing the settings file, pass the
+value with the command-line `--settings` override. The command line outranks the
+settings file.
 
 Each store promotes these resource attributes to a queryable label. The dot in
 each attribute name becomes an underscore in Loki and Mimir:
