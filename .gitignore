@@ -28,3 +28,7 @@ dist/
 # Backup files (may hold copied credentials)
 .npmrc.bak
 *.bak
+
+# Redacted session transcripts. Local working data, never committed.
+.transcripts/
+.transcripts.gitleaks.json
