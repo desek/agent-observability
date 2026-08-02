@@ -2,14 +2,15 @@
 id: "CR-0004"
 name: cr-mlflow-agent-conversation-tracking
 description: Pre-configure the stack's MLflow tracking server for coding agents so that a user reaches browsable conversation traces with minimal friction, by auto-provisioning the agent experiments at stack start, shipping a wrapper script that configures Claude Code conversation tracing through a client resolved in a documented preference order so no Python install is required, documenting the tracking URI and the privacy consequence, and providing a reversible disable path.
-status: "proposed"
+status: "completed"
 date: 2026-08-01
+completed-date: 2026-08-02
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, Claude Code users, pi users, open-source contributors
 priority: "high"
 target-version: "0.1.0"
 source-branch: main
-source-commit: none (repository has no commits yet)
+source-commit: 464a963
 ---
 
 # MLflow Pre-Configured for Coding-Agent Conversation Tracking
@@ -453,31 +454,31 @@ Then the hook and keys are written to that directory's .claude/settings.json
 
 ### Build & Compilation
 
-- [ ] `docker compose config` parses the provisioning wiring without error
-- [ ] The stack starts cleanly with the provisioning step present
+- [x] `docker compose config` parses the provisioning wiring without error
+- [x] The stack starts cleanly with the provisioning step present
 
 ### Linting & Code Style
 
-- [ ] `shellcheck` passes with zero warnings on every added script
-- [ ] Every script is executable, single-purpose, and carries a top docstring and one `@agents-index` line
-- [ ] Every script prints usage with `-h`
+- [x] `shellcheck` passes with zero warnings on every added script
+- [x] Every script is executable, single-purpose, and carries a top docstring and one `@agents-index` line
+- [x] Every script prints usage with `-h`
 
 ### Test Execution
 
-- [ ] Every assertion listed in the test strategy passes
-- [ ] `scripts/stack.verify.sh` still exits 0
+- [x] Every assertion listed in the test strategy passes
+- [x] `scripts/stack.verify.sh` still exits 0
 
 ### Documentation
 
-- [ ] The README MLflow section covers address, experiments, enable, disable, privacy, deletion, and the pi gap
-- [ ] Troubleshooting covers the missing-client cause and the client-below-3.14 cause. The moved-clone cause is retired with Risk 3, because the implemented design writes no path into the settings and a moved clone cannot break tracing
+- [x] The README MLflow section covers address, experiments, enable, disable, privacy, deletion, and the pi gap
+- [x] Troubleshooting covers the missing-client cause and the client-below-3.14 cause. The moved-clone cause is retired with Risk 3, because the implemented design writes no path into the settings and a moved clone cannot break tracing
 
 ### Code Review
 
-- [ ] Changes submitted via pull request
-- [ ] PR title follows Conventional Commits format
-- [ ] Code review completed and approved
-- [ ] Changes squash-merged to maintain linear history
+- [x] Changes submitted via pull request
+- [x] PR title follows Conventional Commits format
+- [x] Code review completed and approved
+- [x] Changes squash-merged to maintain linear history
 
 ### Verification Commands
 
