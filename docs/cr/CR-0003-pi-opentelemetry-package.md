@@ -2,14 +2,15 @@
 id: "CR-0003"
 name: cr-pi-opentelemetry-package
 description: Bring the pi OpenTelemetry extension into this repository as a production-ready, publishable pi package named @desek/pi-opentelemetry, licensed Apache-2.0, discoverable through the pi-package keyword, with a public-facing README, semantic versioning, a changelog, continuous integration on supported Node versions, a tagged publish workflow with provenance, and defaults that make the extension a silent no-op on a machine that does not run this stack.
-status: "proposed"
+status: "completed"
 date: 2026-08-01
+completed-date: 2026-08-02
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, pi coding-agent users, the pi package gallery, open-source contributors
 priority: "high"
 target-version: "0.1.0"
 source-branch: main
-source-commit: none (repository has no commits yet)
+source-commit: 00bd3d0
 ---
 
 # Production-Ready pi OpenTelemetry Extension Package
