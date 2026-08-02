@@ -166,7 +166,10 @@ Telemetry on this stack contains prompt and response content in plaintext, and
 the log streams carry user identity fields. Expanding a single Loki log line
 reveals the stream's full label set, which includes `user_email` and the other
 identity fields `user_id`, `user_account_id`, `user_account_uuid`, and
-`organization_id`.
+`organization_id`. The full privacy posture, what is stored, where, what is off
+by default, and how to delete it, is stated once in the
+[README privacy section](README.md#privacy); the rules below are the agent-facing
+subset.
 
 * Never place identity fields or conversation content into a shared or public
   destination: a commit message, an issue, a pull request, a chat channel, a
