@@ -2,14 +2,15 @@
 id: "CR-0001"
 name: cr-standalone-observability-stack
 description: Establish this repository as the standalone, public, Apache-2.0 home of the local coding-agent observability stack, so that a user can clone it and run one `docker compose up -d` to get a pre-configured Grafana LGTM stack (Loki, Mimir, Tempo, Alloy, Grafana) plus an MLflow tracking server behind a single HAProxy edge proxy on one loopback port, with no reference to any private parent repository and with reusable verification scripts that prove the stack end to end.
-status: "proposed"
+status: "completed"
 date: 2026-08-01
+completed-date: 2026-08-02
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, coding-agent users (Claude Code and pi), open-source contributors
 priority: "critical"
 target-version: "0.1.0"
 source-branch: main
-source-commit: none (repository has no commits yet)
+source-commit: e79921d
 ---
 
 # Standalone Repository Foundation for the Local Coding-Agent Observability Stack
@@ -485,33 +486,33 @@ Then it states that Docker is the only prerequisite
 
 ### Build & Compilation
 
-- [ ] `docker compose config` parses the compose file without error
-- [ ] `docker compose build mlflow` builds the thin image without error
-- [ ] HAProxy validates its configuration with `haproxy -c` inside the pinned image
+- [x] `docker compose config` parses the compose file without error
+- [x] `docker compose build mlflow` builds the thin image without error
+- [x] HAProxy validates its configuration with `haproxy -c` inside the pinned image
 
 ### Linting & Code Style
 
-- [ ] `shellcheck` passes with zero warnings on every script under `scripts/`
-- [ ] Every script is executable and starts with a top docstring and one `@agents-index` line
-- [ ] YAML files parse cleanly
+- [x] `shellcheck` passes with zero warnings on every script under `scripts/`
+- [x] Every script is executable and starts with a top docstring and one `@agents-index` line
+- [x] YAML files parse cleanly
 
 ### Test Execution
 
-- [ ] `scripts/stack.verify.sh` exits 0 against a freshly started stack
-- [ ] `scripts/stack.verify.sh` exits non-zero and names the failure when a backend is stopped
+- [x] `scripts/stack.verify.sh` exits 0 against a freshly started stack
+- [x] `scripts/stack.verify.sh` exits non-zero and names the failure when a backend is stopped
 
 ### Documentation
 
-- [ ] README covers prerequisites, start, verify, access, privacy, persistence, teardown, and rollback
-- [ ] `.env.example` documents every supported variable with its default
-- [ ] Every ported configuration file retains its purpose comment and `@agents-index` line
+- [x] README covers prerequisites, start, verify, access, privacy, persistence, teardown, and rollback
+- [x] `.env.example` documents every supported variable with its default
+- [x] Every ported configuration file retains its purpose comment and `@agents-index` line
 
 ### Code Review
 
-- [ ] Changes submitted via pull request
-- [ ] PR title follows Conventional Commits format
-- [ ] Code review completed and approved
-- [ ] Changes squash-merged to maintain linear history
+- [x] Changes submitted via pull request
+- [x] PR title follows Conventional Commits format
+- [x] Code review completed and approved
+- [x] Changes squash-merged to maintain linear history
 
 ### Verification Commands
 
