@@ -76,18 +76,18 @@ Give the agent both halves: the knowledge and the tools.
    * The real metric names for both agents, the meaning of the token `type` label, and which labels exist for which agent, so the agent does not invent names.
    * The query recipes: how to ask Mimir a metric question, Loki a log question, Tempo a trace question, and MLflow a conversation question, each with a worked example that returns data on a working stack.
    * How to build a deep link, for the provisioned dashboard, for a metrics view, for a log view, and for a trace view.
-   * The privacy rule the agent must follow: telemetry contains prompt and response content and user identity labels, so an agent **MUST NOT** paste identity labels or conversation content into a shared or public place, and **MUST** prefer handing the user a link over quoting content back.
+   * The privacy rule the agent must follow: telemetry contains prompt and response content and user identity labels, and reading or expanding a single Loki log line reveals the stream's full label set, which includes an email address (`user_email`) and the other user identity fields (`user_id`, `user_account_id`, `user_account_uuid`, `organization_id`) established in CR-0002. The agent never pastes identity labels or conversation content into a shared or public place, and prefers handing the user a link over quoting content back.
    * What not to do: do not start or stop the stack without asking, do not modify the provisioned dashboard, do not enable conversation tracing on the user's behalf.
 
-2. **The Grafana MCP server as an internal service.** The published server image is added to the compose stack, pinned, joined to the internal network, publishing no host port, and running in streamable HTTP transport mode. It addresses Grafana by service name on the internal network and authenticates with the stack's own Grafana credentials, held in the compose environment. Consequently no credential ever reaches the user's agent configuration and nothing has to be pasted anywhere.
+2. **The Grafana MCP server as an internal service.** The published server image (verified to exist as `grafana/mcp-grafana:1.0.0`, the current release) is added to the compose stack, pinned, joined to the internal network, publishing no host port, and running in streamable HTTP transport mode. The published image's entrypoint defaults to the SSE transport, so the service sets the streamable HTTP transport explicitly (its `-t streamable-http` flag) rather than relying on the default. It addresses Grafana by service name on the internal network and authenticates with the stack's own Grafana credentials, held in the compose environment. Consequently no credential ever reaches the user's agent configuration and nothing has to be pasted anywhere.
 
 3. **Routed through the same single door.** HAProxy gains one path prefix routing to the MCP server, health-checked like every other backend. The single-published-port property is preserved exactly: the MCP server is reached at the same loopback port as everything else.
 
-4. **Read-only by default, writes opt-in.** The server runs with its writing tools disabled and with a tool set restricted to the categories this stack actually has: dashboards, datasources, search, Prometheus-compatible metrics, Loki, Tempo, and navigation. Categories for products the stack does not run stay off. Enabling writes is a documented single-line change with a stated consequence, not a default. This matters because the server authenticates as an administrator: read-only is what keeps that safe.
+4. **Read-only by default, writes opt-in.** The server runs with its writing tools disabled (its `--disable-write` flag) and with a tool set restricted through its `--enabled-tools` flag to the categories this stack actually has: dashboards, datasources, search, Prometheus-compatible metrics, Loki, Tempo, and navigation. Categories for products the stack does not run stay off. The server already disables its administrative category by default, which this configuration keeps off. Enabling writes is a documented single-line change with a stated consequence, not a default. This matters because the server authenticates as an administrator: read-only is what keeps that safe.
 
 5. **An example agent configuration.** `.mcp.json` at the repository root wires an MCP-capable agent to the server over its HTTP transport at the single port. It contains no token, no secret, and no absolute path, so it can be copied verbatim. The README explains where to put it for a project and where for a user's whole machine, and documents the alternative standard input and output configuration for anyone who prefers not to route MCP through the proxy.
 
-6. **Deep links, verified and scripted.** `scripts/deeplink.sh` builds the four link kinds: the provisioned dashboard with template variables and a time range pre-selected, a metrics exploration for a given query, a log exploration for a given selector, and a trace view for a given identifier. The exact link format is verified against the running Grafana at implementation time rather than written from memory, because Grafana's exploration link format has changed across major versions and a stale format produces a page that loads and shows nothing. The script is what `AGENTS.md` tells the agent to use, so the format lives in one place and an agent never hand-builds a link.
+6. **Deep links, verified and scripted.** `scripts/deeplink.sh` builds the four link kinds: the provisioned dashboard with template variables and a time range pre-selected, a metrics exploration for a given query, a log exploration for a given selector, and a trace view for a given identifier. The exact link format is verified against the running Grafana (version 13.1.0, the tag this repository pins) at implementation time rather than written from memory, because Grafana's exploration link format has changed across major versions and a stale format produces a page that loads and shows nothing. The script is what `AGENTS.md` tells the agent to use, so the format lives in one place and an agent never hand-builds a link. The MCP server additionally exposes a native `generate_deeplink` tool in its navigation category, so an MCP-capable agent can generate links through that tool while the script remains the always-available shell path that keeps NFR5 satisfied.
 
 7. **Verification.** `scripts/mcp.verify.sh` proves the MCP server is reachable through the single port, that it lists tools, that the tool list contains the expected categories, and that no writing tool is present in the default configuration. `scripts/deeplink.sh` gains a self-check mode that asserts each generated link resolves to a page rather than an error.
 
@@ -117,9 +117,9 @@ flowchart TD
 3. `AGENTS.md` **MUST** give a single command that tells an agent whether the stack is running.
 4. `AGENTS.md` **MUST** list the address of every backend through the single port, expressed in terms of the port variable rather than a literal port number.
 5. `AGENTS.md` **MUST** list the real metric names for both agents, **MUST** explain the token `type` label, and **MUST** state which labels exist for which agent.
-6. `AGENTS.md` **MUST** contain a worked query example for each of Mimir, Loki, Tempo, and MLflow that returns data on a working stack.
+6. `AGENTS.md` **MUST** contain a worked query example for each of Mimir, Loki, Tempo, and MLflow that executes successfully on a working stack and returns data, or an explicit empty result where the signal is not yet populated. The MLflow example **MUST** use the MLflow version 3 trace search endpoint with a `locations` request body, as established by CR-0004, and **MUST NOT** use the version 2 trace path (which returns 405) or a bare `experiment_ids` body (which returns 400). Because MLflow conversation tracing is disabled by default, a stack where no conversation has been traced holds no traces, so the MLflow example **MUST** state that an empty trace set is the expected result until tracing is enabled and a turn is run.
 7. `AGENTS.md` **MUST** instruct the agent to build links using `scripts/deeplink.sh` rather than by hand.
-8. `AGENTS.md` **MUST** state that telemetry contains prompt and response content and user identity labels, and **MUST** instruct the agent never to place either into a shared or public destination.
+8. `AGENTS.md` **MUST** state that telemetry contains prompt and response content and user identity labels, **MUST** state that reading or expanding a single Loki log line reveals the stream's full label set including an email address (`user_email`) and the other user identity fields established in CR-0002, and **MUST** instruct the agent never to place identity labels or conversation content into a shared or public destination.
 9. `AGENTS.md` **MUST** instruct the agent to prefer handing the user a link over quoting conversation content back.
 10. `AGENTS.md` **MUST** state which actions require asking the user first, naming at least starting or stopping the stack, modifying the provisioned dashboard, and enabling conversation tracing.
 11. The compose stack **MUST** include the Grafana MCP server as a service with a pinned image tag.
@@ -359,7 +359,7 @@ Then it contains no token, no secret, and no absolute path
   And an agent using it connects successfully with nothing pasted by the user
 ```
 
-### AC-8: Deep links open the intended view (covers FR22, FR24, FR25)
+### AC-8: Deep links open the intended view (covers FR7, FR22, FR24, FR25)
 
 ```gherkin
 Given a working stack with telemetry
@@ -367,6 +367,7 @@ When the user generates a dashboard link with variables and a time range
 Then the link opens the provisioned dashboard with those variables and that range applied
   And metrics, log, and trace links each open their intended view
   And the self-check mode asserts each link resolves rather than erroring
+  And AGENTS.md instructs the agent to build links with scripts/deeplink.sh rather than by hand
 ```
 
 ### AC-9: Links follow the configured port (covers FR23)
@@ -419,6 +420,15 @@ When the user runs scripts/mcp.verify.sh
 Then it exits 0 and reports each assertion as passed
   And when the server is stopped and it is re-run
   Then it exits non-zero, names the failure, and states the fix
+```
+
+### AC-15: The configuration placement and the stdio alternative are documented (covers FR21)
+
+```gherkin
+Given the README
+When a user looks for where to install the example agent configuration
+Then it states where to place .mcp.json for a single project and for a whole machine
+  And it documents the standard input and output configuration as the alternative to routing MCP through the proxy
 ```
 
 ## Quality Standards Compliance
@@ -523,7 +533,7 @@ shellcheck scripts/*.sh
 * CR-0001, for the stack, the proxy, the port variable, and the script conventions.
 * CR-0002, for the fixed dashboard identifier the dashboard deep link targets.
 * CR-0004, for the MLflow conversation query recipe in the instruction file.
-* The published Grafana MCP server image at a pinned tag.
+* The published Grafana MCP server image at a pinned tag. The current release is `grafana/mcp-grafana:1.0.0`, verified to exist on Docker Hub and to correspond to upstream release v1.0.0 of `grafana/mcp-grafana`.
 * CR-0006 depends on this change, because its installation path installs the configuration this change provides.
 
 ## Estimated Effort
@@ -541,3 +551,39 @@ Chosen approach: "an accurate instruction file plus an internal, read-only Grafa
 * CR-0004: the MLflow conversation capability the instruction file teaches the agent to query.
 * CR-0006: the installation path that places this configuration for the user.
 * CR-0007: the README presentation of the agent interface.
+
+<!-- review-summary -->
+## Review Summary (CR-0005)
+
+Reviewed 2026-08-02 against the current repository (CR-0001 through CR-0004 complete).
+
+### Findings by category
+
+* **Drift (3):** (1) MCP image was described generically as "a pinned tag" with no verified reference; the current published image is `grafana/mcp-grafana:1.0.0` (Docker Hub tag `1.0.0` present; upstream release v1.0.0, 2026-07-28). (2) The published Docker image entrypoint defaults to the SSE transport, not streamable HTTP, so the service must set `-t streamable-http` explicitly; the CR assumed streamable HTTP without noting the default. (3) The MCP server exposes a native `generate_deeplink` navigation tool, which the CR did not acknowledge alongside its own `scripts/deeplink.sh`.
+* **Coverage (2):** FR7 (build links with `deeplink.sh`) and FR21 (README `.mcp.json` placement plus stdio alternative) had no Acceptance Criterion.
+* **Contradiction / testability (1):** FR6 required every worked query, including MLflow, to "return data on a working stack", but MLflow conversation tracing is off by default, so the MLflow example returns an empty trace set on a clean stack.
+* **Ambiguity / recipe precision (1):** FR6 did not pin the MLflow recipe to the working form; CR-0004 established that MLflow 3 needs the version 3 trace endpoint with a `locations` body (version 2 returns 405, bare `experiment_ids` returns 400).
+* **Privacy precision (1):** FR8 named user identity labels generically but did not state the CR-0002 fact that reading or expanding one Loki log line reveals an email address, which an agent querying Loki will meet.
+* **Convention (1):** RFC 2119 keywords (`MUST`/`MUST NOT`) appeared in Proposed Change prose (item 1), outside a numbered requirement.
+
+### Fixes applied
+
+* Named the verified image `grafana/mcp-grafana:1.0.0` in Proposed Change item 2 and in Dependencies; added the SSE-default transport note and the explicit `-t streamable-http` flag; named `--disable-write` and `--enabled-tools` in item 4; recorded Grafana 13.1.0 as the pinned version the deep-link format is verified against; noted the native `generate_deeplink` tool in item 6.
+* Added FR7 coverage to AC-8; added AC-15 covering FR21.
+* Rewrote FR6 to require successful execution returning data or an explicit empty result, to pin the MLflow recipe to the version 3 endpoint with a `locations` body, and to require the MLflow example to state that an empty trace set is expected until tracing is enabled.
+* Sharpened FR8 to name the Loki log-line detail-view exposure of `user_email` and the other CR-0002 identity fields; mirrored the same fact into the Proposed Change privacy bullet.
+* Downgraded the RFC 2119 keywords in Proposed Change item 1 to plain prose (the normative form remains in FR8 and FR9).
+
+### Scope confirmation
+
+* CR-0005 owns AGENTS.md, the MCP service, the example `.mcp.json`, and the deep-link script. README sections it writes (FR18, FR21) are the per-change sections CR-0007 later reweaves into one narrative; this handoff is expected by CR-0007 and is not a scope conflict.
+* Single-published-port invariant preserved: FR12, NFR1, NFR2, and AC-4 keep the MCP service on the internal network with no host port; verification is bound into `scripts/mcp.verify.sh` and the modified `scripts/stack.verify.sh`.
+* Grafana anonymous access confirmed disabled (`GF_AUTH_ANONYMOUS_ENABLED: "false"`, admin/admin), consistent with the CR's out-of-scope statement and its administrator-credential design.
+
+### Unresolved (human decision)
+
+* Frontmatter `source-commit: none (repository has no commits yet)` is stale (the repo now has many commits), but the review brief requires frontmatter to stay unchanged, so it was left as-is. A human should refresh it at implementation time.
+<!-- /review-summary -->
+
+<!-- review-summary-counts FINDINGS=9 DRIFT=3 FIXES=9 UNRESOLVED=1 -->
+
