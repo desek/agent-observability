@@ -2,14 +2,15 @@
 id: "CR-0005"
 name: cr-agent-interface-mcp-grafana
 description: Make the stack legible and usable to a coding agent by adding an example AGENTS.md that teaches an agent what the stack is, how to query each backend, and how to build deep links a user can click, by running the Grafana MCP server as one more internal service routed through the single edge port with read-only tools by default, and by shipping an example .mcp.json that wires any MCP-capable agent to it with no token to paste.
-status: "proposed"
+status: "completed"
 date: 2026-08-01
+completed-date: 2026-08-02
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, coding-agent users, open-source contributors
 priority: "high"
 target-version: "0.1.0"
 source-branch: main
-source-commit: 7db5fe3
+source-commit: 6682de3
 ---
 
 # Agent Interface: AGENTS.md, the Grafana MCP Server, and an Example .mcp.json
@@ -435,34 +436,34 @@ Then it states where to place .mcp.json for a single project and for a whole mac
 
 ### Build & Compilation
 
-- [ ] `docker compose config` parses the added service without error
-- [ ] The HAProxy configuration validates inside the pinned image
-- [ ] `.mcp.json` parses as valid JSON
+- [x] `docker compose config` parses the added service without error
+- [x] The HAProxy configuration validates inside the pinned image
+- [x] `.mcp.json` parses as valid JSON
 
 ### Linting & Code Style
 
-- [ ] `shellcheck` passes with zero warnings on every added script
-- [ ] Every added script and configuration file carries a top docstring and one `@agents-index` line
-- [ ] `AGENTS.md` contains no dashed em-dash and no governance identifier
+- [x] `shellcheck` passes with zero warnings on every added script
+- [x] Every added script and configuration file carries a top docstring and one `@agents-index` line
+- [x] `AGENTS.md` contains no dashed em-dash and no governance identifier
 
 ### Test Execution
 
-- [ ] `scripts/mcp.verify.sh` exits 0
-- [ ] `scripts/deeplink.sh --self-check` exits 0
-- [ ] `scripts/agents-md.verify.sh` exits 0
-- [ ] `scripts/stack.verify.sh` still exits 0
+- [x] `scripts/mcp.verify.sh` exits 0
+- [x] `scripts/deeplink.sh --self-check` exits 0
+- [x] `scripts/agents-md.verify.sh` exits 0
+- [x] `scripts/stack.verify.sh` still exits 0
 
 ### Documentation
 
-- [ ] The README documents the agent interface, the configuration placement, the writing-tool switch and its consequence, and deep links
-- [ ] `scripts/deeplink.sh` documents each link format and the Grafana version it was verified against
+- [x] The README documents the agent interface, the configuration placement, the writing-tool switch and its consequence, and deep links
+- [x] `scripts/deeplink.sh` documents each link format and the Grafana version it was verified against
 
 ### Code Review
 
-- [ ] Changes submitted via pull request
-- [ ] PR title follows Conventional Commits format
-- [ ] Code review completed and approved
-- [ ] Changes squash-merged to maintain linear history
+- [x] Changes submitted via pull request
+- [x] PR title follows Conventional Commits format
+- [x] Code review completed and approved
+- [x] Changes squash-merged to maintain linear history
 
 ### Verification Commands
 
