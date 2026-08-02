@@ -2,7 +2,7 @@
 #
 # mlflow.tracing.verify.sh
 #
-# @agents-index Verifier for the Claude Code conversation-tracing integration: asserts through the single edge port that a trace in the agent experiment carries both the user turn and the assistant turn, with an assert-only mode for continuous integration and a drive mode that produces a real turn first.
+# @agents-index Verifier for the agent conversation-tracing integrations: asserts through the single edge port that a trace in the agent experiment carries both the user turn and the assistant turn, with an assert-only mode for continuous integration and drive modes that first produce a real turn through either claude or pi.
 #
 # Purpose: prove the agent integration produced a browsable conversation trace,
 # not just that the tracking server is up. It reads the agent experiment through
@@ -22,6 +22,13 @@
 #     directory, then asserts. This mode needs the 'claude' CLI and its
 #     authentication and is for a human proving the integration by hand, never for
 #     ci.
+#   --drive-pi is the same proof for pi: it enables pi conversation tracing in a
+#     scratch directory through scripts/mlflow.tracing.pi.sh, installs the local
+#     @desek/pi-mlflow-tracing extension project-locally, drives one real 'pi'
+#     turn with the switch file sourced, then asserts against the pi experiment.
+#     It defaults the checked experiment to 'pi'. This mode needs the 'pi' CLI and
+#     its authentication and is for a human proving the integration by hand, never
+#     for ci.
 #   --survives-stopped is the NFR2 and AC-13 proof: with the tracking server
 #     unreachable, one real Claude Code turn with tracing enabled must still
 #     complete normally and surface no error. The mode refuses to run unless the
@@ -38,8 +45,9 @@
 # the only one that answers.
 #
 # Usage:
-#   scripts/mlflow.tracing.verify.sh          Assert against existing traces (ci mode).
-#   scripts/mlflow.tracing.verify.sh --drive  Run one real Claude Code turn, then assert.
+#   scripts/mlflow.tracing.verify.sh            Assert against existing traces (ci mode).
+#   scripts/mlflow.tracing.verify.sh --drive    Run one real Claude Code turn, then assert.
+#   scripts/mlflow.tracing.verify.sh --drive-pi Run one real pi turn, then assert the pi experiment.
 #   scripts/mlflow.tracing.verify.sh --survives-stopped
 #                                             With the tracking server stopped, run one
 #                                             real turn and assert it completes normally.
@@ -47,8 +55,12 @@
 #
 # Parameters:
 #   -h, --help   Print usage and exit 0.
-#   --drive      Drive one real agent turn before asserting. Needs the claude CLI
-#                and its authentication. Never used by ci.
+#   --drive      Drive one real Claude Code turn before asserting. Needs the
+#                claude CLI and its authentication. Never used by ci.
+#   --drive-pi   Drive one real pi turn before asserting, against the pi
+#                experiment. Enables pi tracing in a scratch directory, installs
+#                the local pi extension, and needs the pi CLI and its
+#                authentication. Never used by ci.
 #   --survives-stopped
 #                Prove NFR2 and AC-13: with the tracking server unreachable, one
 #                real turn still completes and surfaces no error. Refuses to run
@@ -59,7 +71,8 @@
 #                first, then from .env, then defaults to 24317. The MLflow address
 #                is derived from it and is never hard-coded.
 #   MLFLOW_TRACING_EXPERIMENT
-#                Agent experiment to check. Default claude-code.
+#                Agent experiment to check. Default claude-code, except in
+#                --drive-pi mode where it defaults to pi. An explicit value wins.
 
 set -euo pipefail
 
@@ -71,7 +84,7 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 # --- Usage -------------------------------------------------------------------
 usage() {
-	sed -n '3,62p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+	sed -n '3,75p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 mode="assert"
@@ -83,13 +96,16 @@ case "${1:-}" in
 	--drive)
 		mode="drive"
 		;;
+	--drive-pi)
+		mode="drive-pi"
+		;;
 	--survives-stopped)
 		mode="survives-stopped"
 		;;
 	"") ;;
 	*)
 		echo "tracing-verify: FAIL unknown argument '$1'." >&2
-		echo "  Fix: run with no argument for assert-only, '--drive' to produce a turn first, '--survives-stopped' to prove a turn survives a stopped server, or '-h' for usage." >&2
+		echo "  Fix: run with no argument for assert-only, '--drive' to produce a Claude Code turn first, '--drive-pi' to produce a pi turn first, '--survives-stopped' to prove a turn survives a stopped server, or '-h' for usage." >&2
 		echo "  After: re-run the command with a supported argument." >&2
 		exit 2
 		;;
@@ -118,7 +134,16 @@ resolve_edge_port() {
 
 edge_port="$(resolve_edge_port)"
 mlflow_url="http://127.0.0.1:${edge_port}/mlflow"
-experiment_name="${MLFLOW_TRACING_EXPERIMENT:-claude-code}"
+# The experiment to assert against. An explicit MLFLOW_TRACING_EXPERIMENT always
+# wins; otherwise the default follows the agent being driven: pi in --drive-pi
+# mode, claude-code otherwise.
+if [ -n "${MLFLOW_TRACING_EXPERIMENT:-}" ]; then
+	experiment_name="$MLFLOW_TRACING_EXPERIMENT"
+elif [ "$mode" = "drive-pi" ]; then
+	experiment_name="pi"
+else
+	experiment_name="claude-code"
+fi
 
 # --- Reporting helper --------------------------------------------------------
 fail() {
@@ -177,6 +202,59 @@ drive_one_turn() {
 			"run a 'claude -p' turn by hand and confirm the CLI is authenticated ('claude /status')." \
 			"once a turn completes, re-run this script with '--drive'."
 	# The plugin runtime writes the trace after the turn ends; give it a moment.
+	sleep 3
+}
+
+# --- Optional: drive one real pi turn ----------------------------------------
+# The pi analogue of drive_one_turn. pi reaches MLflow through the published
+# @desek/pi-mlflow-tracing extension, which reads its switch and destination from
+# the environment, so this mode does three things a Claude Code turn does not
+# need: it installs the local extension project-locally into the scratch project
+# (the package is unpublished, so it is installed from its path in this repo), it
+# enables tracing through scripts/mlflow.tracing.pi.sh, and it sources the switch
+# file that script writes before launching pi. The scratch directory is created
+# under the system temp area, never in this repository, so this repository is
+# never touched. The switch file lives inside the scratch directory and is
+# removed with it.
+drive_one_pi_turn() {
+	if ! command -v pi >/dev/null 2>&1; then
+		fail "the --drive-pi mode needs the 'pi' CLI, which is not on PATH." \
+			"install the pi coding agent and authenticate it, or run the default assert-only mode which needs no agent." \
+			"run 'pi --version' and confirm it prints, then re-run with '--drive-pi'."
+	fi
+	local pkg_dir="$repo_root/packages/pi-mlflow-tracing"
+	if [ ! -f "$pkg_dir/package.json" ]; then
+		fail "the local pi extension was not found at ${pkg_dir}." \
+			"run this from a checkout that contains packages/pi-mlflow-tracing." \
+			"confirm 'ls ${pkg_dir}/package.json' resolves, then re-run with '--drive-pi'."
+	fi
+	local scratch
+	scratch="$(mktemp -d "${TMPDIR:-/tmp}/mlflow-tracing-pi.XXXXXX")"
+	# Remove the scratch directory on return, whatever the outcome.
+	trap 'rm -rf "$scratch"' RETURN
+	echo "tracing-verify: installing the local pi extension project-locally in ${scratch}"
+	( cd "$scratch" && pi install "$pkg_dir" -l >/dev/null 2>&1 ) \
+		|| fail "installing the local pi extension into the scratch project failed." \
+			"run 'cd ${scratch} && pi install ${pkg_dir} -l' by hand and read its failure message." \
+			"fix the cause it names, then re-run this script with '--drive-pi'."
+	echo "tracing-verify: enabling pi tracing in scratch directory ${scratch}"
+	EDGE_PORT="$edge_port" "$script_dir/mlflow.tracing.pi.sh" --yes -d "$scratch" >/dev/null \
+		|| fail "enabling pi tracing in the scratch directory failed." \
+			"run 'scripts/mlflow.tracing.pi.sh --yes -d ${scratch}' by hand and read its failure message." \
+			"fix the cause it names, then re-run this script with '--drive-pi'."
+	echo "tracing-verify: driving one pi turn (this reaches the model and may take a moment)"
+	# Source the switch file so PI_MLFLOW_ENABLE and the destination reach pi's
+	# environment, then run one headless turn from the scratch directory so pi
+	# loads the project-local extension.
+	# shellcheck source=/dev/null
+	( cd "$scratch" \
+		&& set -a && . "$scratch/.pi/mlflow-tracing.env" && set +a \
+		&& printf 'Print the word mlflowtrace and nothing else.' \
+		| pi -p >/dev/null 2>&1 ) \
+		|| fail "the pi turn did not complete in the scratch directory." \
+			"run a 'pi -p' turn by hand and confirm the CLI is authenticated." \
+			"once a turn completes, re-run this script with '--drive-pi'."
+	# The extension exports the trace at agent end; give it a moment to land.
 	sleep 3
 }
 
@@ -253,24 +331,34 @@ fi
 
 if [ "$mode" = "drive" ]; then
 	drive_one_turn
+elif [ "$mode" = "drive-pi" ]; then
+	drive_one_pi_turn
+fi
+
+# The drive flag named in the actionable hints below, so a failure in pi mode
+# points back at --drive-pi rather than at the Claude Code --drive.
+if [ "$mode" = "drive-pi" ]; then
+	drive_flag="--drive-pi"
+else
+	drive_flag="--drive"
 fi
 
 search_resp="$(search_traces "$experiment_id" || true)"
 trace_count="$(printf '%s' "$search_resp" | jq -r '.traces | length // 0' 2>/dev/null || echo 0)"
 
-if [ "$mode" != "drive" ] && [ "${trace_count:-0}" -eq 0 ]; then
+if [ "$mode" != "drive" ] && [ "$mode" != "drive-pi" ] && [ "${trace_count:-0}" -eq 0 ]; then
 	# Assert-only mode with no recorded turn yet: nothing to assert. This is the
 	# path that keeps make ci green on a stack where no agent turn has run. It is
 	# a skip, not a claim that tracing works, so it never masks a real defect.
 	echo "tracing-verify: SKIP experiment '${experiment_name}' holds no trace yet, so there is no conversation to assert."
-	echo "  To produce one and assert it, run 'scripts/mlflow.tracing.verify.sh --drive', or enable tracing with 'scripts/mlflow.autolog.claude.sh' and take a turn."
+	echo "  To produce one and assert it, run 'scripts/mlflow.tracing.verify.sh --drive' (Claude Code) or '--drive-pi' (pi), or enable tracing and take a turn."
 	exit 0
 fi
 
 if [ "${trace_count:-0}" -eq 0 ]; then
 	fail "no trace appeared in experiment '${experiment_name}' after driving a turn." \
 		"confirm tracing enabled cleanly (re-run the enable step) and that the turn reached the model; the plugin runtime writes the trace only when a turn ends." \
-		"re-run 'scripts/mlflow.tracing.verify.sh --drive' and confirm a trace is written."
+		"re-run 'scripts/mlflow.tracing.verify.sh ${drive_flag}' and confirm a trace is written."
 fi
 
 # Take the most recent trace and assert both halves of the conversation are
@@ -283,12 +371,12 @@ trace_id="$(printf '%s' "$search_resp" | jq -r '.traces[0].trace_id // "unknown"
 if [ -z "$user_turn" ]; then
 	fail "trace '${trace_id}' in experiment '${experiment_name}' carries no user turn (request preview is empty)." \
 		"the transcript reached MLflow without the prompt; confirm the plugin captured the user message and check the mlflow backend log." \
-		"drive a fresh turn with 'scripts/mlflow.tracing.verify.sh --drive' and confirm the request preview is non-empty."
+		"drive a fresh turn with 'scripts/mlflow.tracing.verify.sh ${drive_flag}' and confirm the request preview is non-empty."
 fi
 if [ -z "$assistant_turn" ]; then
 	fail "trace '${trace_id}' in experiment '${experiment_name}' carries no assistant turn (response preview is empty)." \
 		"the turn was recorded without a response; confirm the turn completed and the plugin captured the assistant message, and check the mlflow backend log." \
-		"drive a fresh turn with 'scripts/mlflow.tracing.verify.sh --drive' and confirm the response preview is non-empty."
+		"drive a fresh turn with 'scripts/mlflow.tracing.verify.sh ${drive_flag}' and confirm the response preview is non-empty."
 fi
 
 echo "tracing-verify: PASS trace '${trace_id}' in experiment '${experiment_name}' carries the user turn and the assistant turn."
