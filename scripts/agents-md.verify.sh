@@ -2,7 +2,7 @@
 #
 # agents-md.verify.sh
 #
-# @agents-index Proves AGENTS.md true against the running stack: every fenced command runs, every metric name it states exists in the store, its addresses use the port variable, and the example .mcp.json holds no secret.
+# @agents-index Proves AGENTS.md true against the running stack: every fenced command runs, every metric name it states exists in the store, its addresses use the port variable, the example .mcp.json holds no secret, and AGENTS.md links to the README privacy section rather than restating the posture.
 #
 # Purpose: keep the example instruction file honest by making every claim in it
 # executable. A stale AGENTS.md makes an agent confidently wrong, so this script
@@ -12,6 +12,9 @@
 #   3. Every backend address in AGENTS.md is expressed through the port variable,
 #      not a literal host:port.
 #   4. The example .mcp.json holds no token, secret, password, or absolute path.
+#   5. AGENTS.md links to the README privacy section (README.md#privacy) rather
+#      than restating the full posture, so the posture is stated once. The full
+#      privacy statement lives in the README; a restatement here would drift.
 # It exits non-zero on the first failure. Every failure names what failed, the
 # fix, and what to check after.
 #
@@ -193,9 +196,24 @@ check_no_secret() {
 	pass "the example .mcp.json holds no token, secret, password, or absolute path."
 }
 
+# --- Check 5: privacy is linked, not restated --------------------------------
+# The full privacy posture is stated once, in the README. AGENTS.md carries the
+# agent-facing rules and links to the README for the posture. This asserts the
+# link is present, so the posture is stated once and a reader is sent to the one
+# authoritative copy rather than a restatement that can drift.
+check_privacy_link() {
+	if ! grep -qF 'README.md#privacy' "$AGENTS_MD"; then
+		fail "$AGENTS_MD does not link to the README privacy section (README.md#privacy)." \
+			"add a link to README.md#privacy in AGENTS.md instead of restating the full posture; the posture is stated once, in the README." \
+			"re-run 'scripts/agents-md.verify.sh' once AGENTS.md links to the README privacy section."
+	fi
+	pass "AGENTS.md links to the README privacy section rather than restating the posture."
+}
+
 run_every_command
 check_metric_names
 check_no_literal_port
 check_no_secret
+check_privacy_link
 
 echo "agents-md-verify: PASS (AGENTS.md is executable and true against the stack on port ${EDGE_PORT})"

@@ -476,6 +476,22 @@ $ ./scripts/demo.seed.sh --clear
 run if any real agent session exists in the capture window, because a picture of
 a real prompt cannot be recalled once published.
 
+To confirm the committed screenshots still match the interface, seed the stack
+and run the capture script in verify mode. It opens each view live and reports
+the pixel difference against the committed baseline, so reproducibility is a
+check rather than a claim. A faithful re-capture differs only by a few percent,
+which is fresh-seed timestamp noise; a larger difference means the interface
+moved and the images want a re-capture and a look.
+
+```console
+$ ./scripts/demo.seed.sh
+$ ./scripts/capture.screenshots.sh --verify
+$ ./scripts/demo.seed.sh --clear
+```
+
+Verification is a maintainer step against a seeded stack, not part of `make ci`,
+because it needs the demo data present and drives a browser.
+
 ## Components
 
 Every image tag is pinned in `compose.yaml`, so a clone reproduces the same

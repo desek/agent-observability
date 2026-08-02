@@ -118,7 +118,7 @@ Rewrite the README around the reader, and generate the images from data that was
 
 10. **An honest boundaries section.** The README states what the project does not do: it is a single-user local stack, not a multi-tenant deployment; it has no alerting; it has no retention policy; conversation tracing covers one agent and not the other; and it is not a hosted service. A reader who needs those things learns it in ten seconds instead of an hour.
 
-11. **A troubleshooting table.** Every failure the earlier changes anticipated, collected in one place as symptom, cause, and fix: the port is in use, the stack is running but panels are empty, metrics are missing while logs arrive, the agent was configured but nothing appears, conversation tracing stopped after the clone was moved, and no MLflow client can be resolved.
+11. **A troubleshooting table.** Every failure the earlier changes anticipated, collected in one place as symptom, cause, and fix: the port is in use, the stack is running but panels are empty, metrics are missing while logs arrive, the agent was configured but nothing appears, the tracing enable script refuses a client below MLflow 3.14, and no MLflow client can be resolved. (The original design also anticipated tracing stopping after the clone was moved, from an end-of-turn hook that named an absolute path into this repository. CR-0004 retired that failure: the implemented MLflow 3.14 design writes a marketplace plugin reference rather than a repository path, so a moved or deleted clone keeps working tracing, and there is no such symptom to document. It is replaced above by the client-below-3.14 refusal, which is the failure the 3.14 design can actually produce.)
 
 ### Proposed State Diagram
 
@@ -185,7 +185,7 @@ flowchart TD
 31. Every capability named in the use-cases section **MUST** be one the stack provides today, with no change to the stack and no additional component.
 32. The use-cases section **MUST** state that telemetry arrives because an application sends it, and **MUST** state that container standard output is not collected automatically.
 33. The README **MUST** contain a section stating what the project deliberately does not do.
-34. The README **MUST** contain a troubleshooting table of symptom, cause, and fix covering every failure mode anticipated by the earlier changes.
+34. The README **MUST** contain a troubleshooting table of symptom, cause, and fix covering every failure mode anticipated by the earlier changes that the implemented design can still produce: the port in use, empty panels, missing metrics while logs arrive, a configured agent producing nothing, the tracing enable script refusing a client below MLflow 3.14, and no resolvable MLflow client. It **MUST NOT** document tracing stopping after a moved clone, because CR-0004 retired that failure when the MLflow 3.14 design replaced the absolute-path hook with a marketplace plugin reference; documenting a failure the design cannot produce would send a reader after the wrong cause.
 35. The README **MUST** contain the data-flow diagram and a component table naming each component and its pinned version.
 36. The README **MUST** contain contributing and licensing sections.
 37. The README **MUST NOT** restate any procedure that a script performs; it **MUST** name the script instead.
@@ -504,7 +504,8 @@ Then a section states that the project is single-user and local, has no alerting
 Given the README
 When a user meets a failure
 Then a table lists the symptom, the cause, and the fix
-  And it covers the port conflict, empty panels, missing metrics with arriving logs, a configured agent producing nothing, tracing stopping after the clone moved, and no resolvable MLflow client
+  And it covers the port conflict, empty panels, missing metrics with arriving logs, a configured agent producing nothing, the tracing enable script refusing a client below MLflow 3.14, and no resolvable MLflow client
+  And it does not document tracing stopping after a moved clone, a failure CR-0004 retired when the MLflow 3.14 design replaced the absolute-path hook with a marketplace plugin reference
 ```
 
 ### AC-16: Every command in the README works (covers FR24, FR37, FR39)

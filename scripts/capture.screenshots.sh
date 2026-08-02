@@ -31,9 +31,22 @@
 # Usage:
 #   scripts/capture.screenshots.sh          Capture both images, refusing if any
 #                                            unseeded telemetry is in the window.
+#   scripts/capture.screenshots.sh --verify Do not write; open each view live and
+#                                            report its pixel difference against the
+#                                            committed baseline, so reproducibility
+#                                            is a check rather than a claim (FR20,
+#                                            NFR2, AC-8). Refuses on unseeded data
+#                                            just like a capture. Reports the diff
+#                                            per image and exits non-zero only when
+#                                            a difference exceeds CAPTURE_DIFF_MAX,
+#                                            which is a structural change (an
+#                                            interface moved) rather than the small
+#                                            timestamp noise a fresh seed produces.
 #   scripts/capture.screenshots.sh -h       Print this usage and exit 0.
 #
 # Parameters:
+#   --verify     Compare each live view against its committed baseline instead of
+#                writing new images. Uses agent-browser diff screenshot --baseline.
 #   -h, --help   Print usage and exit 0.
 #
 # Environment:
@@ -44,6 +57,11 @@
 #   CAPTURE_WINDOW_SECS   The look-back window, in seconds, the leak check and the
 #                         dashboard both use. Defaults to 21600 (6h), matching the
 #                         dashboard's own default range.
+#   CAPTURE_DIFF_MAX      --verify only. The largest pixel-difference percentage
+#                         that still counts as reproduced. Defaults to 8. A live
+#                         re-seed moves timestamps and the MLflow-computed latency,
+#                         so a faithful re-capture still differs by a few percent;
+#                         a structural interface change differs by far more.
 #   CAPTURE_HEADED        Set to 1 to run headed so the run can be watched;
 #                         defaults to headless, so no attended desktop is needed.
 #
@@ -62,18 +80,22 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 # --- Usage -------------------------------------------------------------------
 usage() {
-	sed -n '3,60p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+	sed -n '3,73p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
+mode="capture"
 case "${1:-}" in
 	-h | --help)
 		usage
 		exit 0
 		;;
+	--verify)
+		mode="verify"
+		;;
 	"") ;;
 	*)
 		echo "capture: FAIL unknown argument '$1'." >&2
-		echo "  Fix: run 'scripts/capture.screenshots.sh' with no arguments, or '-h' for usage." >&2
+		echo "  Fix: run 'scripts/capture.screenshots.sh' to capture, '--verify' to compare against the baselines, or '-h' for usage." >&2
 		echo "  After: re-run the command without the extra argument." >&2
 		exit 2
 		;;
@@ -118,6 +140,7 @@ base_url="http://127.0.0.1:${edge_port}"
 grafana_user="${GRAFANA_USER:-admin}"
 grafana_password="${GRAFANA_PASSWORD:-admin}"
 window_secs="${CAPTURE_WINDOW_SECS:-21600}"
+diff_max="${CAPTURE_DIFF_MAX:-8}"
 
 # --- Constants ---------------------------------------------------------------
 readonly DEMO_ORG="demo-seed"
@@ -128,6 +151,9 @@ readonly VIEW_H=900
 # view. A viewport tall enough to hold the whole dashboard keeps every panel in
 # view, so all four rows render and populate before the single frame is taken.
 readonly DASH_VIEW_H=2600
+# The MLflow trace detail is shorter than the dashboard; this height holds the
+# span tree, the attributes panel, and the trace-breakdown graph in one frame.
+readonly MLFLOW_VIEW_H=1100
 readonly DASH_PATH="docs/images/dashboard.png"
 readonly MLFLOW_PATH="docs/images/mlflow-conversation.png"
 
@@ -247,8 +273,10 @@ grafana_login() {
 	esac
 }
 
-capture_dashboard() {
-	info "capturing the dashboard to ${DASH_PATH}"
+# --- Navigation, shared by capture and verify --------------------------------
+# Each nav_* function leaves the browser on the exact view an image is taken
+# from, so a capture and a --verify comparison photograph the same thing.
+nav_dashboard() {
 	# Set a viewport tall enough to hold the whole dashboard, so every panel stays
 	# in view and renders (Grafana does not query panels scrolled out of view).
 	ab set viewport "$VIEW_W" "$DASH_VIEW_H" >/dev/null
@@ -260,41 +288,80 @@ capture_dashboard() {
 	ab wait --text "Overview" >/dev/null 2>&1 || true
 	ab wait --text "Recent agent traces" >/dev/null 2>&1 || true
 	ab wait 8000 >/dev/null
-	rm -f "$DASH_PATH"
-	# The viewport already holds the full height, so a plain screenshot captures
-	# every row without a resize that would re-trigger virtualization.
-	ab screenshot "${repo_root}/${DASH_PATH}" >/dev/null
-	if [ ! -s "${repo_root}/${DASH_PATH}" ]; then
-		fail "the dashboard image was not written to ${DASH_PATH}." \
-			"confirm agent-browser is installed ('agent-browser install') and that the dashboard loads at ${base_url}/d/agent-observability/." \
-			"re-run 'scripts/capture.screenshots.sh'."
-	fi
 }
 
-capture_mlflow() {
-	info "capturing the MLflow conversation to ${MLFLOW_PATH}"
-	ab set viewport "$VIEW_W" 1100 >/dev/null
+nav_mlflow() {
+	ab set viewport "$VIEW_W" "$MLFLOW_VIEW_H" >/dev/null
 	ab open "${base_url}/mlflow/#/experiments/1/traces" >/dev/null
 	ab wait --load networkidle >/dev/null || true
 	ab wait --text "Add a health check endpoint" >/dev/null 2>&1 || true
 	ab wait 2500 >/dev/null
-	# Dismiss any first-visit guidance popovers on the trace list.
+	# Dismiss any first-visit guidance popovers on the trace list before the click,
+	# otherwise the click lands on the popover rather than on the trace.
 	ab find text "Got it" click >/dev/null 2>&1 || true
 	ab find text "Close guidance" click >/dev/null 2>&1 || true
 	ab wait 1000 >/dev/null
-	# Open the seeded conversation by its request cell, which brings up the trace
-	# detail with its turn and tool structure (Summary view) as a side panel. The
-	# request text is one the seed writes, so it is a stable handle.
+	# Open the seeded conversation by its request cell. The request text is one the
+	# seed writes, so it is a stable handle.
 	ab find text "Add a health check endpoint to the demo web store service." click >/dev/null 2>&1 \
 		|| ab find first "tbody a" click >/dev/null 2>&1 || true
 	ab wait --text "Inputs" >/dev/null 2>&1 || true
-	ab wait 3000 >/dev/null
-	rm -f "$MLFLOW_PATH"
-	ab screenshot "${repo_root}/${MLFLOW_PATH}" >/dev/null
-	if [ ! -s "${repo_root}/${MLFLOW_PATH}" ]; then
-		fail "the MLflow image was not written to ${MLFLOW_PATH}." \
-			"confirm the seeded conversation exists ('scripts/demo.seed.sh') and that MLflow loads at ${base_url}/mlflow/." \
+	ab wait 2500 >/dev/null
+	# Switch to Details and Timeline, select the first assistant turn, then open its
+	# Attributes. The Summary view shows the turns and tools but not the token and
+	# cost detail; the Attributes panel of a turn span shows tokens.input,
+	# tokens.output, cost_usd, and latency_ms, which is what AC-4 requires in frame
+	# alongside the turn and tool structure the left-hand span tree keeps visible.
+	ab find text "Details & Timeline" click >/dev/null 2>&1 || true
+	ab wait 1500 >/dev/null
+	ab find text "assistant_turn_1" click >/dev/null 2>&1 || true
+	ab wait 1000 >/dev/null
+	ab find text "Attributes" click --exact >/dev/null 2>&1 || true
+	ab wait 1500 >/dev/null
+}
+
+# --- Write one image ---------------------------------------------------------
+write_image() {
+	local path="$1" label="$2"
+	info "capturing the ${label} to ${path}"
+	rm -f "${repo_root}/${path}"
+	ab screenshot "${repo_root}/${path}" >/dev/null
+	if [ ! -s "${repo_root}/${path}" ]; then
+		fail "the ${label} image was not written to ${path}." \
+			"confirm agent-browser is installed ('agent-browser install') and that the view loads on port ${edge_port}." \
 			"re-run 'scripts/capture.screenshots.sh'."
+	fi
+}
+
+# --- Compare one live view against its committed baseline --------------------
+# Runs agent-browser's pixel diff between the current live view and the committed
+# image, prints the difference, and returns non-zero when it exceeds diff_max.
+# Sets verify_failed when a comparison is over budget, so the caller can exit
+# with the right status after reporting every image rather than on the first.
+verify_failed=0
+report_diff() {
+	local path="$1" label="$2" out pct
+	if [ ! -s "${repo_root}/${path}" ]; then
+		fail "no committed baseline at ${path} to compare against." \
+			"capture the baselines first with 'scripts/capture.screenshots.sh', commit them, then re-run '--verify'." \
+			"re-run 'scripts/capture.screenshots.sh --verify' once the baseline exists."
+	fi
+	out="$(ab diff screenshot --baseline "${repo_root}/${path}" 2>&1 || true)"
+	# The tool prints a line like "✗ 3.52% pixels differ"; pull the percentage out.
+	pct="$(printf '%s\n' "$out" | grep -oE '[0-9]+\.[0-9]+%' | head -1 | tr -d '%')"
+	if [ -z "$pct" ]; then
+		fail "could not read a difference percentage from the ${label} comparison. agent-browser said: ${out}" \
+			"confirm the view loaded and 'agent-browser diff screenshot --baseline' works on this version." \
+			"re-run 'scripts/capture.screenshots.sh --verify'."
+	fi
+	if awk -v p="$pct" -v m="$diff_max" 'BEGIN{exit !(p+0 <= m+0)}'; then
+		pass "${label} reproduced: ${pct}% of pixels differ from the baseline (within the ${diff_max}% budget; the remainder is fresh-seed timestamp noise)."
+	else
+		echo "capture: DIFF ${label} differs by ${pct}% from the committed baseline, over the ${diff_max}% budget." >&2
+		echo "  This is a structural difference, not timestamp noise: the interface or the seeded shape changed." >&2
+		echo "  Fix: re-capture with 'scripts/capture.screenshots.sh' and review the new image before committing it." >&2
+		echo "  After: re-run '--verify' and confirm every image is within budget." >&2
+		verify_failed=1
 	fi
 }
 
@@ -302,6 +369,20 @@ capture_mlflow() {
 assert_only_seeded
 open_session
 grafana_login
-capture_dashboard
-capture_mlflow
-pass "wrote ${DASH_PATH} and ${MLFLOW_PATH} from seeded synthetic data only."
+if [ "$mode" = "verify" ]; then
+	info "verify: comparing each live view against its committed baseline (budget ${diff_max}% pixels, port ${edge_port})"
+	nav_dashboard
+	report_diff "$DASH_PATH" "dashboard"
+	nav_mlflow
+	report_diff "$MLFLOW_PATH" "MLflow conversation"
+	if [ "$verify_failed" -ne 0 ]; then
+		exit 1
+	fi
+	pass "both committed images are reproducible from the seeded data within the ${diff_max}% budget."
+else
+	nav_dashboard
+	write_image "$DASH_PATH" "dashboard"
+	nav_mlflow
+	write_image "$MLFLOW_PATH" "MLflow conversation"
+	pass "wrote ${DASH_PATH} and ${MLFLOW_PATH} from seeded synthetic data only."
+fi
