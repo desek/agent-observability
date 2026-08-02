@@ -153,6 +153,47 @@ the variables and panel documentation are complete. It exits non-zero on the
 first failure and names the fix. Run `./scripts/dashboard.verify.sh -h` for its
 usage.
 
+## pi telemetry extension
+
+The stack renders pi's signals, but pi emits none on its own. The
+`@desek/pi-opentelemetry` package is the pi extension that exports pi's metrics,
+log events, and traces over OTLP, at parity with Claude Code's built-in
+telemetry. It lives in this repository at `packages/pi-opentelemetry/` and is
+published to npm. Its own [README](packages/pi-opentelemetry/README.md) is the
+full reference for every configuration variable and every emitted signal.
+
+Install it one of two ways:
+
+- **As a user, from the registry** (one command, no clone):
+
+  ```bash
+  pi install npm:@desek/pi-opentelemetry
+  ```
+
+- **As a contributor developing the extension**, from a local checkout of this
+  repository, so your edits load without a publish:
+
+  ```bash
+  pi install ./packages/pi-opentelemetry
+  ```
+
+The package defaults its OTLP endpoint to the OpenTelemetry standard
+`http://localhost:4317`, not this stack's single edge port. Point it at the edge
+port to export into this stack, then drive one turn:
+
+```bash
+export PI_OTEL_ENABLE=1
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:24317   # use your EDGE_PORT if set
+pi -p "Print the word telemetry and nothing else."
+```
+
+`agents/pi-otel.env` is the shared, non-secret set of opt-in content flags this
+repository provides for agents. It is the same flag set the package documents;
+sourcing it turns on the content-logging fields the extension leaves off by
+default. The package's own defaults win when a flag is unset, so installing the
+extension without sourcing that file exports structural telemetry only, no
+prompt or response text.
+
 ## Checks
 
 `make ci` is the single command that checks the repository:
@@ -186,6 +227,7 @@ help` to list the individual targets.
 | `stack/mimir/` | Mimir metric-store configuration. |
 | `stack/tempo/` | Tempo trace-store configuration. |
 | `stack/mlflow/` | The thin MLflow image build. |
+| `packages/pi-opentelemetry/` | The `@desek/pi-opentelemetry` pi extension: source, tests, and its published-package manifest. |
 | `agents/pi-otel.env` | The opt-in OpenTelemetry content flags for agents. |
 | `agents/direnvrc` | The optional git-provenance direnv helper. |
 | `scripts/stack.up.sh` | Start the stack and wait until it is ready. |

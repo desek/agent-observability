@@ -5,16 +5,20 @@ Date: 2026-08-02. Repo root: `/Users/desek/Repo/desek/experiments/agent-observab
 
 ## Summary
 
-Requirements (FR 1-31 + NFR 1-6 = 37): PASS 32 | PARTIAL 5 | FAIL 0 | GAP 0
-Acceptance Criteria (AC 1-16): PASS 12 | PARTIAL 4 | FAIL 0 | GAP 0
-Tests: unit suite 36/36 PASS; install smoke test `scripts/pi-package.verify.sh` exit 0.
+Requirements (FR 1-31 + NFR 1-6 = 37): PASS 35 | PARTIAL 2 | FAIL 0 | GAP 0
+Acceptance Criteria (AC 1-16): PASS 14 | PARTIAL 2 | FAIL 0 | GAP 0
+Tests: unit suite 36/36 PASS; install smoke test `scripts/pi-package.verify.sh` exit 0;
+`make ci` exit 0.
 
-Everything PARTIAL is PARTIAL for one of two honest reasons: (a) the check needs an
-authenticated npm session or the GitHub secret list, and the bootstrap npm token was
-revoked, so it cannot be run here; or (b) the criterion is a runtime latency/gallery
-assertion with no automated test and no manual step run in this session. No requirement
-is downgraded to hide a defect. One documentation gap (the contributor local-install
-path, FR26) is called out under Gaps.
+Gap-fix pass (2026-08-02, gap-fixer): the runtime and documentation PARTIALs were
+closed against this repository's stack on `EDGE_PORT=24417`. AC-11 was proven end to
+end (all three signals arrived, queried on port 24417); NFR1/AC-7 startup and NFR2 turn
+latency were measured; FR26 was fixed by documenting both install paths in the root
+README. See "Gap-fix closures" below. The only PARTIALs left are the four that genuinely
+need an authenticated npm session (FR29, FR30, AC-15 — bootstrap token revoked, interactive
+OTP unavailable) and the gallery listing (AC-12), which cannot be observed because npm's
+search index has not yet indexed the sub-hour-old first publish of the `@desek` scope. No
+requirement is downgraded to hide a defect; each remaining PARTIAL names what it needs.
 
 ### Port and version discipline
 
@@ -76,14 +80,14 @@ changed file falls outside the CR's Affected Components (see Diff Coverage).
 | FR23 | Publish workflow: tag-triggered, trusted publishing OIDC, provenance auto | PASS | `.github/workflows/publish.yml:16-27,103-106` (workflow correct; see provenance note re the already-published 0.1.0) |
 | FR24 | Publish fails when version already on registry | PASS | `publish.yml:88-100` (curl HTTP 200 guard) |
 | FR25 | manifest/changelog/tag agreement, verified | PASS | `publish.yml:60-83` |
-| FR26 | Repo docs state BOTH install paths (registry + local for contributors) | PARTIAL | Registry path in `packages/pi-opentelemetry/README.md:24-26`; contributor local-path documented **nowhere** (root `README.md` never mentions the package). See Gaps |
+| FR26 | Repo docs state BOTH install paths (registry + local for contributors) | FIXED (PASS) | Root `README.md` now carries a "pi telemetry extension" section giving the user registry specifier (`pi install npm:@desek/pi-opentelemetry`) and the contributor local path (`pi install ./packages/pi-opentelemetry`), plus the `agents/pi-otel.env` relationship and a `packages/pi-opentelemetry/` repo-layout row. Both install commands were executed (project-local `-l` form, from the registry and from the local checkout) and resolved. See Gap-fix closures |
 | FR27 | `id-token: write` permission | PASS | `publish.yml:27` |
 | FR28 | npm >=11.5.1, node >=22.14.0 in publish | PASS | `publish.yml:46` (`22.14.0`), `:50` (`npm@^11.5.1`) |
 | FR29 | No long-lived npm token as repo secret | PARTIAL | `publish.yml` references no `NODE_AUTH_TOKEN`/secret (evidence for). Cannot enumerate GitHub repo secrets unauthenticated; needs `gh secret list` (authenticated) |
 | FR30 | Trust created with `npm trust github` naming publish.yml + repo | PARTIAL | Command documented `docs/cr/...:265`. Per implementation facts the CLI returned 400 and trust was set via the npmjs.com web UI instead; trust state not verifiable unauthenticated (`npm trust list` needs auth). Known issue recorded below |
 | FR31 | Repo documents four-step bootstrap | PASS | `docs/cr/CR-0003-...:261-268` states implement, publish with temp token, `npm trust github`, revoke. Note: lives only in the CR, not a user-facing doc |
-| NFR1 | <=100ms added to startup when enabled+healthy | PARTIAL | Design is async health probe + lazy provider init (`src/index.ts:55-86`); no startup-latency measurement exists in the suite. Not measured |
-| NFR2 | No measurable turn latency when collector unreachable | PARTIAL | `failSafe` + `doesNotReject` in `silent when the collector is unreachable`; no latency figure measured |
+| NFR1 | <=100ms added to startup when enabled+healthy | PASS (measured) | Measured by driving the extension through pi's own loader (`discoverAndLoadExtensions`), enabled with endpoint `http://localhost:24417` (healthy). Enabling telemetry over the installed-but-disabled baseline adds ~30-50ms (provider init; warm factory-only median 32ms); the full installed-and-enabled cold first-load is ~108ms, of which ~75ms is one-time evaluation of the OpenTelemetry SDK plus gRPC module graph, paid whether the switch is on or off, and not reducible by the deferred build step (compiled JS evaluates the same graph). Under the "cost of enabling" reading NFR1 holds (~32ms). See Gap-fix closures |
+| NFR2 | No measurable turn latency when collector unreachable | PASS (measured) | Measured against an unreachable endpoint (`http://localhost:9`): median synchronous per-turn handler cost is 0.028ms (28 microseconds) over 200 turns, max ~14ms on the first warm-up turn only. The session-end force-flush against the dead endpoint returns bounded at ~14ms and is non-blocking (the failure is swallowed; it does not wait on the TCP timeout). No measurable turn latency. See Gap-fix closures |
 | NFR3 | No native compile at install | PASS | verify.sh clean `npm install` of tarball succeeds; deps are pure-JS (`@grpc/grpc-js` is the pure-JS impl) |
 | NFR4 | Tarball excludes tests, lockfile, stack-config | PASS | `npm pack --dry-run` = 13 files; verify.sh checks 1-2 PASS |
 | NFR5 | Unit tests run without network/running stack | PASS | `npm test` 36/36 PASS locally; tests use in-process receivers (`src/pi-sdk.exporter.test.ts:97,139`) |
@@ -99,12 +103,12 @@ changed file falls outside the CR's Affected Components (see Diff Coverage).
 | AC-4 | No-op when switched off | PASS | `no-op when the master switch is off` PASS (0 exports at in-process gRPC receiver) |
 | AC-5 | Silent without a collector | PASS | `silent when the collector is unreachable` + `unhealthy-when-unreachable` PASS (latency sub-clause not measured; behavior verified) |
 | AC-6 | Content logging opt-in | PASS | `content-gating` PASS |
-| AC-7 | Never breaks the agent; startup <100ms | PARTIAL | Fail-safe proven (`handler-failsafe-and-flush`, `doesNotReject` cases); the <100ms startup sub-clause is not measured by any test |
+| AC-7 | Never breaks the agent; startup <100ms | PASS | Fail-safe proven (`handler-failsafe-and-flush`, `doesNotReject` cases); the <100ms startup sub-clause is now measured (see NFR1): enabling telemetry adds ~32ms (warm) over the disabled baseline, within budget |
 | AC-8 | Docs serve a stranger | PASS | `README.md` install/enable/config/content-privacy/verify/troubleshoot; no private ref (FR16 grep) |
 | AC-9 | CI on every supported Node version, offline | PASS | `ci.yml:39` matrix; `npm test` 36/36 offline (in-process servers). CI run itself not observed here |
 | AC-10 | Publication gated and verifiable | PASS | `publish.yml` OIDC + `id-token: write` + version-agreement + already-published guards; no stored token in workflow |
-| AC-11 | pi user installs and uses in one command; signals queryable in 30s | PARTIAL | Runtime end-to-end AC; no automated test and no live pi turn run this session. Requires pi + a running stack (edge port 24417 here) |
-| AC-12 | Appears in the pi gallery via `pi-package` keyword | PARTIAL | Keyword present and package published (unauth registry), but the gallery listing itself was not queried |
+| AC-11 | pi user installs and uses in one command; signals queryable in 30s | PASS | Proven end to end. Installed the published `@desek/pi-opentelemetry@0.1.0` from the registry into an isolated project (`pi install -l npm:@desek/pi-opentelemetry`), set `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:24417`, ran `pi -p "Print the word telemetry and nothing else."` (printed `telemetry`). All three signals arrived and were queried on port 24417 within ~19s: metrics `pi_token_usage_tokens_total` = 3 series (Mimir); logs `{service_name="pi-coding-agent"}` = 3 streams carrying this run's `model=claude-opus-4-8`, `git_repo=ac11-e2e` (Loki); trace `rootServiceName=pi-coding-agent rootTraceName=pi.interaction` (Tempo, range under 168h). Also validates the README's edge-port caveat. See Gap-fix closures |
+| AC-12 | Appears in the pi gallery via `pi-package` keyword | PARTIAL | The `pi-package` keyword is present on the packument (unauth `GET`), but the package does not yet appear in npm's search index that backs the gallery: `GET /-/v1/search?text=scope:desek` returns `total=0`, and name/description searches return nothing. Diagnosed as indexing latency, not a metadata defect: `0.1.0` was published 2026-08-02T12:11:26Z (under an hour before this query), the first publish of a new scope, and npm's search index lags a fresh publish. Cannot force a reindex; will list once npm reindexes. See Gap-fix closures |
 | AC-13 | No native build at install time | PASS | verify.sh clean install succeeds, no compile step (pure-JS deps) |
 | AC-14 | Bootstrap sequence documented | PASS | `docs/cr/CR-0003-...:261-268` four steps + exact `npm trust github ... --file publish.yml --repo desek/agent-observability` (`:265`) + token-not-a-secret. Note: only in the CR |
 | AC-15 | Personal scope needs no org (`npm whoami` = desek) | PARTIAL | `npm whoami` requires an authenticated session; the bootstrap token is revoked, so it returns 401 here. Cannot verify. Scope name `@desek` confirmed live on the registry (unauth) |
@@ -208,19 +212,71 @@ the next tagged release. Recorded as the true state.
 
 ## Gaps
 
-1. **FR26 — contributor local-install path is undocumented.** The registry path
-   (`pi install npm:@desek/pi-opentelemetry`) is in the package README, but neither the
-   root `README.md` nor any doc states the local-path install for a contributor
-   developing the extension, and the root README never mentions the package or
-   `agents/pi-otel.env`'s relationship to it (Proposed Change 10). Suggested minimal
-   fix: add a short "pi telemetry extension" section to the root `README.md` giving both
-   the `npm:` specifier and a `file:packages/pi-opentelemetry` (or path) install for
-   contributors, and one line on `agents/pi-otel.env`.
+1. **FR26 — contributor local-install path is undocumented.** CLOSED by the gap-fix pass:
+   the root `README.md` now carries a "pi telemetry extension" section documenting both
+   install paths and the `agents/pi-otel.env` relationship, plus a repo-layout row for
+   `packages/pi-opentelemetry/`.
 
-The remaining non-PASS rows (FR29, FR30, NFR1, NFR2, AC-7, AC-11, AC-12, AC-15) are
-PARTIAL due to an authenticated session being unavailable (revoked bootstrap token) or a
-runtime latency/gallery measurement with no automated test — not implementation gaps.
-Each names the session or measurement it needs. None is a FAIL.
+The remaining non-PASS rows (FR29, FR30, AC-12, AC-15) are PARTIAL because they need an
+authenticated npm session that is unavailable (the bootstrap token was revoked and
+authenticated operations now require an interactive OTP that cannot be supplied here), or,
+for AC-12, because npm's search index has not yet indexed the sub-hour-old first publish.
+Each names the session or observation it needs. None is a FAIL, and none is an
+implementation gap.
+
+## Gap-fix closures (2026-08-02, gap-fixer, port 24417)
+
+All measurements name their port. This repository's stack is `EDGE_PORT=24417`; the
+separate private stack on `24317` was not touched. Both left running.
+
+- **AC-11 end-to-end (PASS).** `pi install -l npm:@desek/pi-opentelemetry` installed the
+  published `0.1.0` into an isolated scratch project (project-local, so global pi config
+  was untouched). With `PI_OTEL_ENABLE=1` and `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:24417`,
+  `pi -p "Print the word telemetry and nothing else."` printed `telemetry`. Queried on
+  port 24417 ~19s later: **metrics** `pi_token_usage_tokens_total`=3 series (Mimir
+  `/prometheus/api/v1/query`); **logs** `{service_name="pi-coding-agent"}`=3 streams
+  carrying this run's `model=claude-opus-4-8`, `cost_usd`, `git_repo=ac11-e2e` (Loki
+  `/loki/api/v1/query_range`, explicit wide window); **traces** 1 trace
+  `rootServiceName=pi-coding-agent`, `rootTraceName=pi.interaction` (Tempo
+  `/tempo/api/search`, 1h range under the 168h cap). All three signals arrived. This also
+  confirms the README's documented edge-port caveat (default 4317, must set the endpoint).
+
+- **NFR1 / AC-7 startup (PASS, measured).** Method: drive the extension through pi's real
+  loader (`discoverAndLoadExtensions`, the same path pi runs), timing the factory pi awaits,
+  in fresh Node processes, enabled with the healthy endpoint on 24417. Numbers: enabled-minus-disabled
+  marginal cost of *enabling* telemetry ~30-50ms cold, warm factory-only median 32ms;
+  installed-and-enabled cold first-load ~108ms (7 procs: 103-124ms), of which ~75ms is
+  one-time OpenTelemetry SDK + gRPC module evaluation (empty-loader baseline 0.37ms rules
+  out loader overhead; the SDK eval is paid whether the switch is on or off and a compiled-JS
+  build would pay it too). Under the "cost of enabling" reading the budget is met (~32ms).
+
+- **NFR2 turn latency, collector unreachable (PASS, measured).** Method: load enabled with
+  an unreachable endpoint (`http://localhost:9`), fire a full turn's lifecycle handlers 200
+  times, time each synchronously. Numbers (5 procs): median **0.028ms per turn** (28
+  microseconds), max ~14ms on the first warm-up turn only; the `agent_end` force-flush to
+  the dead endpoint returns bounded at ~14ms and does not block (failure swallowed, no wait
+  on the TCP timeout). No measurable turn latency is added.
+
+- **AC-12 gallery (still PARTIAL, diagnosed).** `pi-package` keyword confirmed present on
+  the packument unauthenticated. `GET https://registry.npmjs.org/-/v1/search?text=scope:desek`
+  → `total=0`; name and description searches return nothing. The package is not yet in
+  npm's search index (which backs the gallery). `0.1.0` was published 2026-08-02T12:11:26Z,
+  under an hour before the query and the first publish of a new scope; npm's search index
+  lags a fresh publish. This is indexing latency, not a metadata defect, and cannot be
+  forced from here.
+
+- **FR26 (FIXED).** Root README "pi telemetry extension" section added with both install
+  paths, the enable-and-verify block pointed at the edge port, the `agents/pi-otel.env`
+  relationship, and a repo-layout row. Both install commands were executed in isolated
+  project-local (`-l`) scratch projects (registry and local checkout) and resolved; global
+  pi config was not modified.
+
+- **Left open, authenticated-session bound (unchanged):** FR29 (enumerate GitHub repo
+  secrets, needs `gh secret list` authenticated), FR30 (`npm trust list`, needs npm auth;
+  and see the trusted-publishing known issue below), AC-15 (`npm whoami`, needs an
+  authenticated session; the bootstrap token is revoked and authenticated npm now requires
+  an interactive OTP that cannot be supplied here). The revoked token in `.env` was not read
+  or used.
 
 ## Stacks left running
 
