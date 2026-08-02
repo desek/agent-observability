@@ -221,6 +221,26 @@ Copy the package into `packages/pi-opentelemetry/`, unchanged in structure. Run 
 
 Read pi's own source to determine how it resolves and loads a package's declared extension entry when the package is installed from a registry tarball, specifically whether TypeScript source is loaded under type stripping in that path. Record the finding and the pi version it was verified against. Add a build step only if the finding requires one, and if a build step is added, keep the test command pointed at the source.
 
+#### Phase 2 Finding: the manifest keeps pointing at TypeScript source (Outcome A, no build step)
+
+**Answer.** The `pi` manifest key keeps pointing at TypeScript source. The current entry `./src/index.ts` stays. No build step is added.
+
+**Date.** 2026-08-02.
+
+**pi version verified against.** The running pi on this machine reports `0.80.3` (`pi --version`). It is installed through mise at `/Users/desek/.local/share/mise/installs/npm-earendil-works-pi-coding-agent/0.78.1/lib/node_modules/@earendil-works/pi-coding-agent`, and its own `package.json` states `"version": "0.80.3"`. The source clone at `/Users/desek/Repo/github/earendil-works/pi` sits on branch `feature/cr-0002-gemini-3.5-flash` at `git describe` `v0.75.4-3-g7e2ca420`, so its `packages/coding-agent` is version `0.75.4`. The clone is behind the installed pi. To keep the finding binding, the evidence below was read from the installed `0.80.3` build, not only from the clone. The clone and the installed build agree on the mechanism.
+
+**Evidence, from pi's own source.** pi loads every extension through one path that does not branch on source type.
+* An installed npm package lands in a managed directory, `<agentDir>/npm/node_modules/<name>` for user scope, or the project or temporary equivalent (`getManagedNpmInstallPath` in `packages/coding-agent/src/core/package-manager.ts`).
+* pi reads that package's `package.json`, takes the `pi.extensions` array, resolves each declared path against the package directory, and keeps it only when the file exists on disk (`resolveExtensionEntries`, same file). A local-path package goes through the same function. The resolution is identical for both source types.
+* The resolved absolute path is then loaded by `loadExtensionModule` in `packages/coding-agent/src/core/extensions/loader.ts`. That function builds a `jiti` instance and calls `jiti.import(extensionPath, { default: true })`. jiti transpiles TypeScript on the fly, so a `.ts` entry loads with no build step. The accepted extension file names are `.ts` or `.js` (`isExtensionFile`). Nothing in this path tests whether the package came from a registry or a local directory.
+* The installed `0.80.3` build carries the same loader: `dist/core/extensions/loader.js` imports `createJiti` from `jiti/static`, calls `jiti.import(extensionPath, { default: true })`, and its `isExtensionFile` accepts `.ts` or `.js`. The installed `package.json` pins `jiti` at `2.7.0`.
+
+**Evidence, empirical.** The package was packed with `npm pack`, and the tarball was installed into a clean temporary project with `npm install <tarball>`. A script then reproduced pi's exact two steps: it read `pi.extensions` from the installed `package.json`, resolved `./src/index.ts` against the installed package directory, confirmed the file exists on disk, and loaded it with `jiti@2.7.0` through `jiti.import(entry, { default: true })`. The load returned the extension factory function. A registry-installed package therefore resolves and loads its declared TypeScript entry the same way a local-path package does.
+
+**Load-bearing condition for Phase 3.** pi resolves the entry from disk and drops it silently when the file is absent (`resolveExtensionEntries` returns null and no error is raised). So the published `files` list MUST ship the whole source import graph that the entry needs, that is the `src/` directory, not only the manifest. If `files` omits `src/`, the tarball installs, pi finds no extension entry, and the package does nothing without an error. This is the exact silent-no-op failure this phase exists to prevent. Phase 3 owns `package.json`, so Phase 3 must set `"files"` to include `src/` (source and the sibling test files can both ship, or a source-only glob that still carries every non-test file the entry imports), and keep `"pi": { "extensions": ["./src/index.ts"] }` unchanged. Phase 5 makes this binding by packing, installing, and loading the entry as an automated test.
+
+**When this finding stops applying.** It holds while pi loads extensions through jiti and resolves `pi.extensions` from disk without a build step. If a future pi release requires compiled JavaScript for registry-installed packages, or stops transpiling `.ts` entries, this finding must be re-derived against that release. The check is fast: read `loadExtensionModule` in the running pi's `dist/core/extensions/loader.js` and confirm it still calls `jiti.import` and still accepts `.ts`.
+
 ### Phase 3: Publishable manifest and licensing
 
 Rewrite `package.json` with the scoped name, version, license, description, repository, homepage, bugs, keywords, files, publish configuration, and engines. Move the OpenTelemetry API package to peer dependencies. Add the license file and the changelog with its first entry.
