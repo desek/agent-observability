@@ -24,3 +24,7 @@ dist/
 
 # Local npm auth pointer. Holds a variable name, never a value.
 .npmrc
+
+# Backup files (may hold copied credentials)
+.npmrc.bak
+*.bak
