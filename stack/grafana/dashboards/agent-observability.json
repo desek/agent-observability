@@ -86,7 +86,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(increase({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -148,7 +148,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(increase({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -210,7 +210,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(increase({__name__=~\"claude_code_session_count_total|pi_session_count_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_session_count_total|pi_session_count_total\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -272,7 +272,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(increase({__name__=~\"claude_code_active_time_seconds_total|pi_active_time_seconds_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_active_time_seconds_total|pi_active_time_seconds_total\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -376,7 +376,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum by (model) (rate({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\"}[$__rate_interval]))",
+          "expr": "sum by (model) (last_over_time({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\"}[$__interval]))",
           "legendFormat": "{{model}}",
           "range": true,
           "refId": "A"
@@ -467,7 +467,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum by (type) (rate({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\"}[$__rate_interval]))",
+          "expr": "sum by (type) (last_over_time({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\"}[$__interval]))",
           "legendFormat": "{{type}}",
           "range": true,
           "refId": "A"
@@ -539,7 +539,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum by (git_repo) (increase({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\"}[$__range]))",
+          "expr": "sum by (git_repo) (last_over_time({__name__=~\"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total\"}[$__range]))",
           "instant": true,
           "legendFormat": "{{git_repo}}",
           "range": false,
@@ -644,7 +644,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum by (type) (rate({__name__=~\"claude_code_lines_of_code_count_total|pi_lines_of_code_count_total\"}[$__rate_interval]))",
+          "expr": "sum by (type) (last_over_time({__name__=~\"claude_code_lines_of_code_count_total|pi_lines_of_code_count_total\"}[$__interval]))",
           "legendFormat": "{{type}}",
           "range": true,
           "refId": "A"
@@ -735,7 +735,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum by (decision) (rate({__name__=~\"claude_code_code_edit_tool_decision_total|pi_code_edit_tool_decision_total\"}[$__rate_interval]))",
+          "expr": "sum by (decision) (last_over_time({__name__=~\"claude_code_code_edit_tool_decision_total|pi_code_edit_tool_decision_total\"}[$__interval]))",
           "legendFormat": "{{decision}}",
           "range": true,
           "refId": "A"
@@ -797,7 +797,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(increase({__name__=~\"claude_code_commit_count_total|pi_commit_count_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_commit_count_total|pi_commit_count_total\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -859,7 +859,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(increase({__name__=~\"claude_code_pull_request_count_total|pi_pull_request_count_total\"}[$__range]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_pull_request_count_total|pi_pull_request_count_total\"}[$__range]))",
           "instant": true,
           "range": false,
           "refId": "A"
@@ -950,7 +950,7 @@
             "uid": "mimir"
           },
           "editorMode": "code",
-          "expr": "sum(rate({__name__=~\"claude_code_session_count_total|pi_session_count_total\"}[$__rate_interval]))",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_session_count_total|pi_session_count_total\"}[$__interval]))",
           "legendFormat": "sessions",
           "range": true,
           "refId": "A"
