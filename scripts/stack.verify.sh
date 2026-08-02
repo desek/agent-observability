@@ -10,9 +10,10 @@
 #   2. All six endpoints answer through that single port.
 #   3. The three Grafana datasources exist and their health checks pass, and
 #      the provisioned dashboard is present by its uid.
-#   4. No tracked file outside docs references a parent-only path or a
+#   4. Both agent experiments (claude-code and pi) exist in MLflow.
+#   5. No tracked file outside docs references a parent-only path or a
 #      governance identifier.
-#   5. No image reference in compose.yaml uses the floating latest tag.
+#   6. No image reference in compose.yaml uses the floating latest tag.
 # The script exits non-zero on the first failure. Every failure names what
 # failed, the fix, and what to check after the fix.
 #
@@ -39,7 +40,7 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 # --- Usage -------------------------------------------------------------------
 usage() {
-	sed -n '3,32p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+	sed -n '3,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 case "${1:-}" in
@@ -195,7 +196,27 @@ check_datasources() {
 	pass "the mimir, loki, and tempo datasources exist and report healthy, and the provisioned dashboard is present."
 }
 
-# --- Check 4: no parent references and no governance identifiers -------------
+# --- Check 4: both agent experiments exist in MLflow -------------------------
+# A correctly provisioned stack pre-creates one experiment per coding agent so a
+# user reaches a named experiment, not a blank page. This asserts both exist by
+# name through the tracking REST interface. A missing experiment is a
+# provisioning failure, so the check names the provision script as the fix.
+check_agent_experiments() {
+	local experiments=(claude-code pi) name resp id
+	for name in "${experiments[@]}"; do
+		resp="$(curl -s --max-time 10 \
+			"${base_url}/mlflow/api/2.0/mlflow/experiments/get-by-name?experiment_name=${name}" || true)"
+		id="$(printf '%s' "$resp" | grep -o '"experiment_id"[[:space:]]*:[[:space:]]*"[^"]*"' | head -n1 || true)"
+		if [ -z "$id" ]; then
+			fail "the agent experiment '${name}' does not exist in MLflow." \
+				"provision the agent experiments with 'scripts/mlflow.provision.sh'; a correctly provisioned stack has both 'claude-code' and 'pi'." \
+				"re-run 'scripts/stack.verify.sh' and confirm both agent experiments are listed."
+		fi
+	done
+	pass "both agent experiments (claude-code and pi) exist in MLflow."
+}
+
+# --- Check 5: no parent references and no governance identifiers -------------
 # The scan covers tracked files outside docs. The governance record under docs
 # is allowed to describe the parent it migrated from and to carry its own
 # identifier, so docs is excluded by design. This verifier itself holds the
@@ -221,7 +242,7 @@ check_no_parent_references() {
 	pass "no parent references and no governance identifiers outside docs."
 }
 
-# --- Check 5: no floating latest image tag -----------------------------------
+# --- Check 6: no floating latest image tag -----------------------------------
 check_pinned_images() {
 	local hits
 	hits="$(grep -nE '^[[:space:]]*image:.*:latest([[:space:]]|$)' "$repo_root/compose.yaml" || true)"
@@ -239,6 +260,7 @@ echo "verify: checking the stack on port ${edge_port}"
 check_single_published_port
 check_endpoints
 check_datasources
+check_agent_experiments
 check_no_parent_references
 check_pinned_images
 echo "verify: all checks passed"
