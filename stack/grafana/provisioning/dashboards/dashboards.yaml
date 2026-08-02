@@ -1,0 +1,36 @@
+# stack/grafana/provisioning/dashboards/dashboards.yaml
+#
+# @agents-index Grafana file-based dashboard provider that loads committed
+# dashboard JSON from a read-only mounted directory, with user-interface edits
+# and deletion disabled so the committed file stays the source of truth.
+#
+# Purpose: register a file provider so Grafana loads every dashboard JSON on
+# start with no import step. The provider reads a read-only directory. It blocks
+# deletion and user-interface updates. The committed JSON is the only source of
+# truth. The compose file mounts the host directory at the path below.
+
+apiVersion: 1
+
+providers:
+  # One file provider for the project dashboards. Grafana scans the mounted
+  # directory and loads each JSON into the named folder.
+  - name: agent-observability
+    orgId: 1
+    # Grafana groups the loaded dashboards under this folder in the user
+    # interface. The folder appears even when the directory holds no JSON yet.
+    folder: Agent Observability
+    type: file
+    # disableDeletion stops a user from deleting a provisioned dashboard.
+    disableDeletion: true
+    # allowUiUpdates false makes the dashboards read-only in the user interface.
+    # A user must edit the committed JSON to change a dashboard.
+    allowUiUpdates: false
+    # Grafana rescans the directory on this interval and picks up new or
+    # changed JSON files.
+    updateIntervalSeconds: 30
+    options:
+      # Container path of the read-only mount declared in compose.yaml.
+      path: /etc/grafana/dashboards
+      # Keep every dashboard in the single folder above. Do not build folders
+      # from the directory tree.
+      foldersFromFilesStructure: false

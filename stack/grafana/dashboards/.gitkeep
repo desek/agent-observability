@@ -1,0 +1,4 @@
+# Keep this directory tracked while it holds no dashboard JSON yet.
+# The Grafana file provider (stack/grafana/provisioning/dashboards/dashboards.yaml)
+# loads every *.json here into the "Agent Observability" folder. A later change
+# adds the dashboard JSON. See the change requests under docs/cr.

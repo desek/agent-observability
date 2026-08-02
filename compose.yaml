@@ -131,6 +131,9 @@ services:
       GF_AUTH_ANONYMOUS_ENABLED: "false"
     volumes:
       - ./stack/grafana/provisioning:/etc/grafana/provisioning:ro
+      # Committed dashboard JSON, loaded by the file provider under
+      # provisioning/dashboards. Read-only so the container cannot write back.
+      - ./stack/grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     networks:
       - otel
