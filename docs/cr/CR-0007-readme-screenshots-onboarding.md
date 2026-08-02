@@ -26,7 +26,7 @@ An observability project is judged on a picture. A reader deciding whether to sp
 
 There is a second reason the screenshots matter more here than usual. The two things this project does that a plain telemetry stack does not are the agent-specific dashboard and the readable conversation view. Neither is obvious from a feature list. Both are obvious in an image.
 
-The screenshots also carry a hazard that must be designed around rather than handled carefully. Real telemetry from this stack contains user prompts, assistant responses, tool input and output, and, on the metrics side, an email address and several user identifiers. A screenshot taken from the author's own machine would leak some subset of that into a public repository forever, and a careful hand-crop is not a control, because the next person to regenerate the image will not know which region was sensitive. The only durable answer is to generate the images from data that was never real: a seeded synthetic dataset, produced by a script, captured by a script.
+The screenshots also carry a hazard that must be designed around rather than handled carefully. Real telemetry from this stack contains user prompts, assistant responses, and tool input and output. Identity rides on both sides of the stack: Mimir promotes an email address and several user identifiers onto every metric series as labels, and the Loki log streams carry the same identity fields. Expanding a single log line in Grafana reveals the stream's full label set, which includes `user_email` and the identity fields `user_id`, `user_account_id`, `user_account_uuid`, and `organization_id` (see the privacy rules in `AGENTS.md`). This matters directly here, because the walkthrough drills into a log line, so the log view is identity-bearing exactly where the recording lingers. A screenshot or a recording taken from the author's own machine would leak some subset of that into a public repository forever, and a careful hand-crop is not a control, because the next person to regenerate the image will not know which region was sensitive. The only durable answer is to generate the images from data that was never real: a seeded synthetic dataset, produced by a script, captured by a script.
 
 That seeding has a second use that justifies it independently. A user who has started the stack but has not yet wired an agent sees empty panels and has no way to tell a working stack from a broken one. A demo seeding command fills the stack with plausible synthetic telemetry so the user can see every view populated within a minute of cloning, then clear it.
 
@@ -74,7 +74,7 @@ Rewrite the README around the reader, and generate the images from data that was
 
 2. **A seeded conversation for the MLflow image.** The same script, or a sibling with the same conventions, writes one synthetic conversation into the MLflow tracking server through its own interface: a short multi-turn exchange with tool calls, token counts, costs, and latencies, shaped exactly like a real traced session but containing invented content. This is what the MLflow screenshot shows.
 
-3. **Scripted, reproducible capture with `agent-browser`.** `scripts/capture.screenshots.sh` drives the `agent-browser` command-line interface to a fixed set of addresses, writes the images to fixed paths, and is run after seeding and before clearing. `agent-browser` is chosen because it is this machine's standard browser driver for agents and because every variable that makes a capture irreproducible is a flag it already has. The script fixes each one explicitly:
+3. **Scripted, reproducible capture with `agent-browser`.** `scripts/capture.screenshots.sh` drives the `agent-browser` command-line interface to a fixed set of addresses, writes the images to fixed paths, and is run after seeding and before clearing. `agent-browser` is chosen because it is this machine's standard browser driver for agents and because every variable that makes a capture irreproducible is a flag it already has. The implementer follows the `agent-browser-specialization` skill for the command mechanics, the session, display, and viewport conventions of this machine, and the record-to-frames pipeline; where that skill and the sketch below differ on the exact command form, the skill governs. The sketch names the variables the script fixes, not the syntax:
    * `agent-browser set viewport <width> <height>` pins the frame, so a regenerated image is the same size as the one it replaces.
    * `agent-browser set media dark reduced-motion` pins the theme and stops animations, so a capture is not taken mid-transition.
    * Grafana runs with anonymous access disabled, so the script authenticates first, through `agent-browser auth login` with a saved profile or by filling the login form. An implementer who omits this captures a login page.
@@ -83,7 +83,7 @@ Rewrite the README around the reader, and generate the images from data that was
    * `agent-browser batch` runs the sequence as one scripted unit.
    * `agent-browser diff screenshot --baseline` compares a regenerated image against the committed one, which is what turns "reproducible" from a claim into a check.
 
-4. **A recorded walkthrough of the solution.** `scripts/capture.walkthrough.sh` records a short video of the working product: the dashboard with its rows, one drill into a log line, and one agent conversation opened in the MLflow interface. It uses `agent-browser record start <path>.webm`, drives the same fixed viewport, theme, and waits, then `agent-browser record stop`.
+4. **A recorded walkthrough of the solution.** `scripts/capture.walkthrough.sh` records a short video of the working product: the dashboard with its rows, one drill into a log line, and one agent conversation opened in the MLflow interface. It records with `agent-browser`, drives the same fixed viewport, theme, and waits, then stops the recording. The `agent-browser-specialization` skill carries the record-to-frames pipeline this machine standardises on, and the implementer follows it for the recording mechanics rather than reinventing them here.
 
    The format needs one deliberate step. `agent-browser` records WebM only, and a repository page embeds a video from an `.mp4` or `.mov` file, not from a WebM file. The script therefore converts the recording with `ffmpeg` into an `.mp4` for embedding, and optionally into a `.gif` for a preview that plays without a click. All three artifacts are produced from the one recording, so they never disagree. The WebM original is not committed; only the converted output is, which keeps the repository smaller.
 
@@ -161,7 +161,7 @@ flowchart TD
 8. Both capture scripts **MUST** authenticate to Grafana before capturing, because the stack runs with anonymous access disabled.
 9. Both capture scripts **MUST** wait for each view to settle before capturing, and **MUST NOT** rely on a fixed sleep alone.
 10. The capture script **MUST** write the images to fixed paths under `docs/images/`.
-11. Both capture scripts **MUST** verify, before capturing, that the stack contains no real agent session within the window being captured, and **MUST** refuse to capture if one is found.
+11. Both capture scripts **MUST** verify, before capturing, that the stack contains no real agent session within the window being captured, across the metric series and the Loki log streams, and **MUST** refuse to capture if one is found. The check **MUST** cover the log store, because an expanded Loki log line reveals `user_email` and the other identity fields directly.
 12. The repository **MUST** contain a screenshot of the baseline dashboard showing populated panels from every row.
 13. The repository **MUST** contain a screenshot of a coding-agent conversation in the MLflow interface showing its turn and tool structure.
 14. The repository **MUST** contain `scripts/capture.walkthrough.sh` that records a walkthrough of the working product covering the dashboard, one drill into a log line, and one agent conversation in the MLflow interface.
@@ -206,9 +206,10 @@ flowchart TD
 ## Affected Components
 
 * `scripts/demo.seed.sh`, `scripts/capture.screenshots.sh`, and `scripts/capture.walkthrough.sh`, new.
+* `scripts/readme.verify.sh`, new, which asserts every README command runs, that no governance identifier appears, that privacy is stated once, and that both images are referenced with alternative text. It matches the `*.verify.sh` glob, so `make verify` and therefore `make ci` run it automatically.
 * `docs/images/`, new, holding the committed screenshots and the converted video.
 * `README.md`, rewritten.
-* Every other document that currently restates the privacy posture, edited to link to the README instead.
+* Every other document that currently restates the privacy posture, edited to link to the README instead. `AGENTS.md` states the agent-facing privacy rules and links to the README for the full posture; `scripts/agents-md.verify.sh` is updated to assert that link rather than a restatement.
 
 ## Scope Boundaries
 
@@ -237,7 +238,7 @@ flowchart TD
 ## Alternative Approaches Considered
 
 * **Capture screenshots by hand from the author's machine and redact them.** Rejected: redaction is a habit rather than a control, it fails permanently the one time it is forgotten, and a hand capture cannot be regenerated faithfully later.
-* **Capture from a real machine but with content logging disabled.** Rejected: it removes prompt content from logs but not user identity from metric labels, and the conversation screenshot requires conversation content to exist at all.
+* **Capture from a real machine but with content logging disabled.** Rejected: it removes prompt content from logs but not user identity, which rides on both the metric labels and the Loki log streams, so an expanded log line still reveals `user_email` and the other identity fields. The conversation screenshot also requires conversation content to exist at all.
 * **Draw mock-ups instead of capturing real interfaces.** Rejected: a mock-up that flatters the product is dishonest, and one that does not is pointless.
 * **Use the Grafana server-side rendering plugin instead of a browser driver.** Rejected as the default: it requires adding a plugin to the pinned image, it cannot capture the MLflow interface, and it cannot record video at all, so a browser driver is needed regardless and one mechanism is better than two.
 * **Drive the browser with a general automation library rather than `agent-browser`.** Rejected: `agent-browser` is already this machine's standard browser driver for agents, it is the driver the project's own instructions name, and it provides the viewport, theme, animation, wait, screenshot, recording, and baseline-comparison controls this change needs as first-class commands. A general library would reimplement each one.
@@ -278,7 +279,7 @@ Write `scripts/capture.screenshots.sh` on `agent-browser`, with the leak check t
 
 ### Phase 4: Walkthrough recording
 
-Write `scripts/capture.walkthrough.sh`. Plan the route first with `agent-browser snapshot`, so the recording drives known elements rather than guessed selectors. Record with `agent-browser record start`, drive the route, and end with `agent-browser record stop`. Convert the WebM recording to `.mp4` with `ffmpeg`, and optionally to a `.gif` preview. Confirm the video stays inside the duration and size budgets, and confirm it plays when embedded.
+Write `scripts/capture.walkthrough.sh`, following the `agent-browser-specialization` skill for the recording and record-to-frames mechanics. Plan the route first against a live snapshot of the interface, so the recording drives known elements rather than guessed selectors. Record with `agent-browser`, drive the route, and end the recording. Convert the WebM recording to `.mp4` with `ffmpeg`, and optionally to a `.gif` preview. Confirm the video stays inside the duration and size budgets, and confirm it plays when embedded.
 
 ### Phase 5: README rewrite
 
@@ -286,7 +287,7 @@ Rewrite the README in the reader's order. Place the images near the top with alt
 
 ### Phase 6: Final pass
 
-Confirm the images and the video are legible at rendered width and within budget, that the video plays where it is embedded, that the README reads end to end in under ten minutes, that no governance identifier appears, and that a fresh reader can follow it from clone to populated dashboard without leaving the page.
+Confirm the images and the video are legible at rendered width and within budget, that the video plays where it is embedded, that the README reads end to end in under ten minutes, that no governance identifier appears, and that a fresh reader can follow it from clone to populated dashboard without leaving the page. Run `make ci` and confirm it exits zero, so the new `scripts/readme.verify.sh` and the script lint pass through the project's single check entry point rather than only ad hoc invocation.
 
 ### Implementation Flow
 
@@ -381,13 +382,13 @@ Then it exits non-zero before any frame is taken
   And no image file and no recording is written
 ```
 
-### AC-4: Both required screenshots exist and are shown (covers FR5, FR10, FR12, FR13, FR18)
+### AC-4: Both required screenshots exist and are shown (covers FR4, FR5, FR10, FR12, FR13, FR18)
 
 ```gherkin
-Given the repository
+Given the repository with the synthetic MLflow conversation seeded
 When the README is rendered
 Then a screenshot of the baseline dashboard with populated panels from every row appears near the beginning
-  And a screenshot of an agent conversation in the MLflow interface showing turns and tool calls appears near the beginning
+  And a screenshot of an agent conversation in the MLflow interface showing its turns and tool calls with token and cost detail appears near the beginning
   And each has descriptive alternative text
 ```
 
@@ -505,12 +506,13 @@ Then a table lists the symptom, the cause, and the fix
   And it covers the port conflict, empty panels, missing metrics with arriving logs, a configured agent producing nothing, tracing stopping after the clone moved, and no resolvable MLflow client
 ```
 
-### AC-16: Every command in the README works (covers FR37, FR39)
+### AC-16: Every command in the README works (covers FR24, FR37, FR39)
 
 ```gherkin
 Given a machine with the stack running
 When every command in the README is extracted and run
 Then each exits successfully
+  And the command that populates the stack with demo data and the command that clears it both appear in the README and each exits successfully
   And no procedure is restated that a script already performs
 ```
 
@@ -569,6 +571,11 @@ Then it contains the data-flow diagram and a component table with pinned version
 ### Verification Commands
 
 ```bash
+# The project's single check entry point: lint every script and run every
+# verification script, including the new scripts/readme.verify.sh, against the
+# running stack. This is the canonical gate for the change.
+make ci
+
 # Populate every view with synthetic data
 ./scripts/demo.seed.sh
 
@@ -612,7 +619,7 @@ shellcheck scripts/demo.seed.sh scripts/capture.screenshots.sh scripts/capture.w
 
 **Likelihood:** low with the leak check, high without it
 **Impact:** high and irreversible once published
-**Mitigation:** Images and video are captured only from seeded synthetic data, both capture scripts refuse to run when a real session exists in the window, and the seeded dataset is asserted to contain no identity or real content. Three controls, because the failure cannot be undone. The video carries the greater exposure, because it shows many views in sequence rather than one frame, which is why the check runs before recording starts rather than after it ends.
+**Mitigation:** Images and video are captured only from seeded synthetic data, both capture scripts refuse to run when a real session exists in the window, and the seeded dataset is asserted to contain no identity or real content. Three controls, because the failure cannot be undone. The video carries the greater exposure, because it shows many views in sequence rather than one frame, which is why the check runs before recording starts rather than after it ends. The log-line drill is the sharpest exposure of all, because an expanded Loki log line reveals `user_email` and the other identity fields directly, so the leak check covers the log store and not only the metric series, as FR11 now states.
 
 ### Risk 2: The browser behaves differently across machines
 
@@ -660,6 +667,7 @@ shellcheck scripts/demo.seed.sh scripts/capture.screenshots.sh scripts/capture.w
 
 * CR-0001 through CR-0006, all of them. This change photographs and documents the finished product, so it is implemented last.
 * The `agent-browser` command-line interface, which drives every capture and the recording. Verified available at version 0.27.1, which provides `set viewport`, `set media`, `wait`, `screenshot`, `record start` and `record stop`, `batch`, `auth`, and `diff screenshot --baseline`.
+* The `agent-browser-specialization` skill, available on this machine, which carries the house conventions for driving `agent-browser`, including the record-to-frames pipeline. The capture scripts follow it for command mechanics rather than restating them.
 * `ffmpeg`, which converts the WebM recording into the committed mp4 and the optional gif. Verified available at version 7.1.1.
 * A running stack for seeding, capture, and command verification.
 
@@ -681,3 +689,41 @@ Chosen approach: "produce every visual artifact with `agent-browser` against a s
 * CR-0004: the conversation capability photographed in the second screenshot.
 * CR-0005: the agent interface documented in the reading-your-data section.
 * CR-0006: the installation path that is the README's one wiring command.
+
+<!-- review-summary -->
+## Review Summary
+
+Reviewed 2026-08-02 against the repository at HEAD 89ded6f, with CR-0001 through CR-0006 all implemented. This CR was authored 2026-08-01 as the last of the seven and was the most stale.
+
+### Findings by category
+
+* **Drift (2).**
+  1. Identity attribution was wrong. The CR placed the email address and user identifiers only on "the metrics side" and named "metric labels" as the sole identity carrier. Verified against `AGENTS.md` (Privacy rules) and the README (Git provenance labels): the Loki log streams carry the same identity fields, and expanding a single log line reveals `user_email`, `user_id`, `user_account_id`, `user_account_uuid`, and `organization_id`. This is load-bearing because the walkthrough drills into a log line, which is exactly the identity-bearing view.
+  2. Command mechanics were restated inline. A new `agent-browser-specialization` skill now carries this machine's house conventions and the record-to-frames pipeline; the CR should point the implementer at it rather than restate command syntax.
+* **Coverage (2).** FR4 (seed a synthetic MLflow conversation) and FR24 (README states the demo seed and clear commands) had no acceptance criterion in any "covers" list.
+* **Scope (1).** `scripts/readme.verify.sh` was referenced in the Test Strategy and Verification Commands but absent from Affected Components. The canonical `make ci` / `make lint-scripts` / `make verify` workflow was not named as the verification path.
+
+### Fixes applied
+
+* Motivation and the "content logging disabled" alternative rewritten to state identity rides on both the Mimir metric labels and the Loki log streams, with the log-line reveal spelled out and cited to `AGENTS.md`.
+* FR11 strengthened to require the leak check cover the log store, not only the metric series. Risk 1 mitigation updated to match, without introducing a normative MUST in prose.
+* Proposed Change items 3 and 4, Phase 4, and Dependencies now point the implementer at the `agent-browser-specialization` skill for command mechanics and the record-to-frames pipeline; the skill governs where its command form differs from the CR sketch.
+* AC-4 now covers FR4 (Given the seeded conversation; screenshot shows turns, tool calls, and token and cost detail). AC-16 now covers FR24 (the demo seed and clear commands appear and each exits successfully).
+* Affected Components now lists `scripts/readme.verify.sh` and notes it matches the `*.verify.sh` glob so `make verify` and `make ci` run it. `make ci` added to Verification Commands and Phase 6 as the canonical gate.
+
+### Verified as accurate, no change needed
+
+* Framing is correct: the README exists as an accreted document (33 headings in implementation order, privacy at line 572 near the end), so "rewrite as a first-run narrative" matches reality rather than writing from nothing.
+* Demo seeding is still sensible and more necessary: the stack now holds real sessions from this very run, and the leak check (FR11, AC-3) plus the synthetic-only assertion (FR2, AC-2) cover it. Strengthened as above for the log store.
+* Every "covers" list names only requirements that exist (FR1 to FR39, NFR1 to NFR9). After the two coverage fixes, every FR and NFR is covered by at least one AC, and every AC maps to at least one Test Strategy entry.
+* No dashed em-dashes. Gherkin criteria and quoted Mermaid labels intact. Frontmatter unchanged; status remains proposed.
+
+### Observed, not fixed
+
+* AC-5 grades "drives the browser only through agent-browser" and "sets viewport, theme, and reduced motion before capturing" on source inspection rather than a purely observable end state. This is inherent to the mechanism requirements FR6 and FR7 (there is no observable-only way to assert "only through agent-browser"), and the criterion also asserts observable outcomes (no login page captured, headless run). Left as is.
+* Proposed Change item 9 uses **MUST** in narrative prose (line ~116). It is pre-existing and maps directly to FR31 and FR32, so it was left rather than reworded.
+
+### Unresolved
+
+None. All findings were resolved in place.
+<!-- /review-summary -->
