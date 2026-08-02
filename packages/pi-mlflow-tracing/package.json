@@ -1,0 +1,51 @@
+{
+  "name": "@desek/pi-mlflow-tracing",
+  "version": "0.1.0",
+  "description": "pi coding-agent extension that reconstructs each agent loop as an OpenTelemetry span tree and exports it to an MLflow tracking server so a pi conversation is readable turn by turn, defaulting to this project's local stack. It installs as a no-op: it records nothing unless its master switch is set, stays silent when no tracking server is reachable, and never blocks or crashes the agent.",
+  "license": "Apache-2.0",
+  "author": "desek",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/desek/agent-observability.git",
+    "directory": "packages/pi-mlflow-tracing"
+  },
+  "homepage": "https://github.com/desek/agent-observability/tree/main/packages/pi-mlflow-tracing#readme",
+  "bugs": {
+    "url": "https://github.com/desek/agent-observability/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi",
+    "coding-agent",
+    "mlflow",
+    "conversation",
+    "tracing",
+    "opentelemetry",
+    "observability"
+  ],
+  "engines": {
+    "node": ">=22.14.0"
+  },
+  "files": [
+    "src/**/*.ts",
+    "!src/**/*.test.ts",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "scripts": {
+    "test": "node --experimental-strip-types --test 'src/*.test.ts'"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.80.3"
+  }
+}
