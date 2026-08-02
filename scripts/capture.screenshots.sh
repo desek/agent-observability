@@ -144,6 +144,9 @@ diff_max="${CAPTURE_DIFF_MAX:-8}"
 
 # --- Constants ---------------------------------------------------------------
 readonly DEMO_ORG="demo-seed"
+# The marker scripts/transcript.import.sh stamps on redacted real sessions.
+# Permitted in a capture only when CAPTURE_ALLOW_IMPORT=1; see assert_only_seeded.
+readonly IMPORT_ORG="session-import"
 readonly VIEW_W=1440
 readonly VIEW_H=900
 # The dashboard is taller than one baseline viewport, and Grafana virtualizes
@@ -192,7 +195,33 @@ git_org_values_loki() {
 
 assert_only_seeded() {
 	require_stack
-	info "leak check: asserting the stack holds only git_org=${DEMO_ORG} telemetry in the last ${window_secs}s window (port ${edge_port})"
+
+	# Two markers can be permitted, and they are not equivalent.
+	#
+	#   demo-seed       Invented values. No real prompt, response, identity, or
+	#                   repository name ever existed in it. Safe to publish by
+	#                   construction, and permitted by default.
+	#   session-import  Real agent sessions with identity and known secret shapes
+	#                   removed by scripts/transcript.redact.sh and verified by
+	#                   its gitleaks gate. The PROMPT AND RESPONSE TEXT IS REAL.
+	#                   Redaction removes what it recognises; it cannot recognise
+	#                   a secret in a novel format, and it does not remove content
+	#                   that is merely private rather than secret.
+	#
+	# The second is therefore opt-in, never the default. Publishing a screenshot
+	# of it puts the author's own conversation text into a public image, which is
+	# a decision for the author to take deliberately rather than a default to
+	# inherit.
+	local permitted="$DEMO_ORG"
+	if [ "${CAPTURE_ALLOW_IMPORT:-0}" = "1" ]; then
+		permitted="${permitted} ${IMPORT_ORG}"
+		info "WARNING: CAPTURE_ALLOW_IMPORT=1 permits git_org=${IMPORT_ORG} in the capture."
+		info "         That data is real agent sessions with identity and known secret"
+		info "         formats removed, NOT invented values. The prompt and response text"
+		info "         in any captured image is real. Confirm you intend to publish it."
+	fi
+
+	info "leak check: asserting the stack holds only git_org in {${permitted}} in the last ${window_secs}s window (port ${edge_port})"
 	local mimir loki unseeded=""
 	mimir="$(git_org_values_mimir)"
 	loki="$(git_org_values_loki)"
@@ -202,9 +231,10 @@ assert_only_seeded() {
 		name="${store%%:*}"
 		while IFS= read -r val; do
 			[ -z "$val" ] && continue
-			if [ "$val" != "$DEMO_ORG" ]; then
-				unseeded="${unseeded}${unseeded:+, }${val} (${name})"
-			fi
+			case " ${permitted} " in
+				*" ${val} "*) ;;
+				*) unseeded="${unseeded}${unseeded:+, }${val} (${name})" ;;
+			esac
 		done <<-EOF
 			${store#*:}
 		EOF
@@ -217,12 +247,16 @@ assert_only_seeded() {
 	fi
 
 	# A stack with no seeded data at all would capture empty panels; catch that too.
-	if ! printf '%s\n' "$mimir" "$loki" | grep -qx "$DEMO_ORG"; then
+	local have_data=0 want
+	for want in $permitted; do
+		if printf '%s\n' "$mimir" "$loki" | grep -qx "$want"; then have_data=1; fi
+	done
+	if [ "$have_data" -eq 0 ]; then
 		fail "no seeded telemetry (git_org=${DEMO_ORG}) is present in the ${window_secs}s window, so the capture would show empty panels." \
 			"seed synthetic data with 'scripts/demo.seed.sh', then re-run this script." \
 			"re-run 'scripts/capture.screenshots.sh' once the seed reports success."
 	fi
-	pass "leak check clear: only git_org=${DEMO_ORG} telemetry is in the capture window."
+	pass "leak check clear: only git_org in {${permitted}} is in the capture window."
 }
 
 # --- Browser session ---------------------------------------------------------

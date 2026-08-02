@@ -108,8 +108,33 @@ worktree: "/Users/desek/Repo/desek/experiments/agent-observability"
 
   Two residues. The committed MLflow screenshot and the walkthrough show `mlflow 3.14.0` in the sidebar, so they are now one minor version behind what runs; regenerating them is a maintainer step against a seeded stack and was not done here. And `scripts/demo.seed.sh` names Mimir 3.1.2 in a comment about the absent delete API; that file carries an unrelated uncommitted change in the working tree, so it was left untouched rather than swept into this commit.
 
+### Attempt 4 — import the redacted transcripts and capture from real work rather than invented values
+
+* **Change:** `stack/pricing/claude.json` pins the 25 Claude rows of the LiteLLM price table, all four token types. `scripts/transcript.import.py` reads the redacted transcripts and writes them into Mimir, Loki, and Tempo through the edge port, with `scripts/transcript.import.sh` as the shell wrapper. `scripts/capture.screenshots.sh` gains a second permitted marker, `session-import`, behind an explicit `CAPTURE_ALLOW_IMPORT=1` opt-in. `docs/images/dashboard.png` recaptured.
+
+* **Reason:** the seeded dataset is invented, so every panel showed plausible rather than true values, and the subagent dimension did not exist at all. The transcripts are the only complete record of what the agents actually did.
+
+* **Evidence:** 34 sessions across 91 redacted files, 2815 tool calls, 57 subagents, 953M tokens, spanning 25.8 hours of real time compressed onto the last 1.5 hours per the windows Attempt 3 measured.
+
+  Cost is computed rather than invented. A transcript carries tokens and a model but no price, so the rate comes from the pinned table: 177.79 dollars, blended across `claude-opus-5` and a Haiku variant. A hand-check applying Opus rates to every token gives 703.98, and the gap is the Haiku sessions priced correctly at their own rate. No model went unpriced.
+
+  The subagent breakdown is the dimension the live telemetry never had: `cr-phase-implementor` 17543s, `cr-gap-fixer` 4090s, `cr-validator` 3206s, `cr-reviewer` 2054s, `cr-finalizer` 1318s, `cr-editor` 182s, `cr-doc-updater` 120s.
+
+  The leak check was widened deliberately rather than quietly. The two markers are not equivalent and the script now says so: `demo-seed` is invented and safe by construction, `session-import` is real work with identity and known secret formats removed. Redaction removes what it recognises; it cannot recognise a secret in a novel format, and it does not remove content that is merely private. So the import marker is opt-in, the default is unchanged, and the opt-in prints what it costs before any frame is taken.
+
+  One defect the capture exposed: the Total tokens panel read zero while the token-rate panel beside it plainly had data. The panel filters on `model=~"${model:regex}"`, and the imported token series carried no `model` label, so they were excluded whenever the variable resolved to a concrete list. Real Claude Code telemetry does stamp the model on the token metric, so this was a fidelity gap in the importer, not a dashboard fault. Fixed by stamping the model on the token and active-time metrics.
+
+  Consequence worth stating: the fix changes the label set, so re-importing writes new series alongside the old ones. The dashboard filters by model and so reads correctly, but an unfiltered sum would double count until the volumes are wiped. A clean re-import therefore needs `docker compose down -v`, which is the user's call rather than this session's.
+
+  Not yet done: the importer writes no MLflow conversation, so the conversation image still shows seeded data. `shellcheck` is clean on both new shell files and the Python parses.
+
+* **Supersedes:** nothing. Attempt 3 chose the span this importer reuses.
+
 ## What Stands Now
 
+* The stack holds the real work: 34 imported sessions, 2815 tool calls, 57 subagents, cost computed from a pinned price table rather than invented.
+* Screenshot capture permits imported data only behind `CAPTURE_ALLOW_IMPORT=1`, which states that the prompt and response text in any captured image is real.
+* The MLflow conversation image still shows seeded data; the importer does not write MLflow traces yet.
 * The metric store accepts back-dated samples up to 72 hours. Verified at 6, 24, 48, and 71 hours, with 100 hours correctly refused.
 * The seeded dataset spans about an hour and a half, which is the widest span every backend accepts without changing a storage setting. Loki is the binding constraint at roughly two hours, anchored to a chunk edge. Tempo accepts no history at all, so seeded traces are written at the present moment.
 * Back-dated samples older than roughly twelve hours are not immediately queryable. They become visible after the block ships and the store synchronises, which is up to fifteen minutes on the current settings. Anything that seeds history and then reads or photographs it must account for that delay, or the settings that govern it must change.
