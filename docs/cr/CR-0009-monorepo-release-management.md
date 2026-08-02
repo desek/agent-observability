@@ -16,7 +16,7 @@ source-commit: 7680d56
 
 ## Change Summary
 
-This repository releases one package by hand: a person raises the version, writes the changelog entry, and pushes a tag whose form the publish workflow matches. A second package is arriving, and that path does not extend to two packages, because the tag form carries no package name and the changelog is written rather than derived.
+This repository releases one package by hand: a person raises the version, writes the changelog entry, and pushes a tag whose form the publish workflow matches. A second package has now landed on disk, `packages/pi-mlflow-tracing`, added and finalized by CR-0008, and that path does not extend to two packages, because the tag form carries no package name and the changelog is written rather than derived.
 
 This change adopts release-please in its manifest mode. Each package gets its own version, its own changelog, its own component-scoped tag, and its own release pull request, all computed from the commits that touched it. Publication stays where it is, on trusted publishing over OpenID Connect, and is triggered by a merged release rather than by a hand-pushed tag.
 
@@ -34,9 +34,9 @@ The second complication is the state of the existing package. `@desek/pi-opentel
 
 ## Change Drivers
 
-* A second pi extension package is arriving, and the current tag form cannot name which package a tag releases.
+* A second pi extension package, `packages/pi-mlflow-tracing`, now exists on disk (landed by CR-0008), and the current tag form cannot name which package a tag releases.
 * The version and the changelog are written by hand today, so they can disagree with the history and with each other.
-* Publication is deferred for the new package until this automation exists, so this change blocks that one.
+* The second package is finalized in the repository but not yet published to the registry, and its publication is deferred until this automation exists, so this change unblocks it.
 * The published version of the existing package is not recorded by any tag in this repository, so the release history starts from nothing unless it is seeded.
 * The repository's commit subjects on the default branch are not Conventional Commits, so release computation would find nothing to release.
 * Trusted publishing is already working and is worth keeping; the change needed is what triggers it, not how it authenticates.
@@ -44,6 +44,8 @@ The second complication is the state of the existing package. `@desek/pi-opentel
 ## Current State
 
 One package is published from this repository. `@desek/pi-opentelemetry` is at version 0.1.0 on the registry, published on 2026-08-02.
+
+The second package now exists on disk. `packages/pi-mlflow-tracing` was added and finalized by CR-0008 and declares version 0.1.0 in its own `package.json`, but it is not on the registry: a registry lookup of `@desek/pi-mlflow-tracing` returns a 404. It has never been published and has no tag or release. Both packages carry their own `package-lock.json`.
 
 The release path has three parts:
 
@@ -67,7 +69,7 @@ flowchart TD
     DEV -->|"pushes tag v0.1.0"| TAG["tag matching v-number"]
     TAG --> PUB["publish workflow, trusted publishing"]
     PUB --> NPM["npm registry"]
-    NEW["packages/pi-mlflow-tracing, arriving"] -.->|"no tag form names it"| TAG
+    NEW["packages/pi-mlflow-tracing, on disk, unpublished"] -.->|"no tag form names it"| TAG
     NOTE["no tags exist in the repository"] -.-> TAG
 ```
 
@@ -93,7 +95,7 @@ Adopt release-please in manifest mode for both packages, and change what trigger
 
 3. **A release pull request per package.** Each package proposes its own release, holding its own version bump and its own changelog entry, computed from the commits that touched its path. A change to one package never drags the other into a release it did not earn.
 
-4. **The history seeded with what is already published.** The manifest records `packages/pi-opentelemetry` at 0.1.0, the version already on the registry, and the missing release is recorded so the automation starts from the real state rather than proposing a version that exists.
+4. **The history seeded with what is already published, and the new package seeded so its first version can publish.** The manifest records `packages/pi-opentelemetry` at 0.1.0, the version already on the registry, and the missing release is recorded so the automation starts from the real state rather than proposing a version that exists. `packages/pi-mlflow-tracing` is the opposite case: it declares 0.1.0 on disk but has never been published, so seeding the manifest at 0.1.0 would tell the automation that 0.1.0 is already released and it would never publish 0.1.0. The new package's manifest entry **MUST** therefore be seeded so that the automation's first proposed release of it is the intended first published version, and the concrete seeding mechanism for an unpublished package is called out as an open decision below rather than assumed.
 
 5. **Publication in the same workflow run as the release, not by a second trigger.** The release workflow runs on the default branch, runs the automation, and then publishes in the same run, gated on the automation's own report of what it released. This is not a style preference: a tag or a release the automation creates does not start another workflow, so a publish workflow that waits for a release event would never run. Authentication does not change: trusted publishing over OpenID Connect, no stored token, provenance attached by the registry. The registry's trust relationship names the workflow file that publishes, so moving the publish step means re-pointing that relationship at the file that now performs it.
 
@@ -158,6 +160,7 @@ sequenceDiagram
 20. The implementation **MUST** perform one complete release rehearsal on the real repository, driving every step of that loop and producing a real published version, because no dry run exercises the release job, the tag creation, the publish step, or the provenance attachment.
 21. The rehearsal **MUST** be recorded, naming the released package, the released version, the tag, the release, and the published artifact, so a later reader sees that the loop ran rather than that it was designed.
 22. The repository **MUST** provide one script that verifies a completed release from outside the repository, asserting that the tag exists, the release exists, the version is on the registry, and the published artifact carries provenance.
+23. The manifest entry for `packages/pi-mlflow-tracing`, which exists on disk but has never been published, **MUST** be seeded so that the automation's first proposed release of that package is its intended first published version, rather than a version the automation treats as already released and therefore never publishes.
 
 ### Non-Functional Requirements
 
@@ -229,7 +232,7 @@ The cost is one setup change and one convention that contributors already had to
 
 ### Phase 1: Configuration and seeding
 
-Add the configuration and the manifest, record the already-published version, and record the missing release so the automation starts from the real state. Prove that a dry run proposes no release when nothing has changed.
+Add the configuration and the manifest, record the already-published version of `packages/pi-opentelemetry`, and record its missing release so the automation starts from the real state. Seed `packages/pi-mlflow-tracing`, which exists on disk but has never been published, so the automation's first proposed release of it is the intended first published version rather than a version it treats as already released (see the open decision in Dependencies). Prove that a dry run proposes no release for the published package when nothing has changed.
 
 ### Phase 2: The release workflow
 
@@ -241,7 +244,7 @@ Change the publish path so it runs on a merged release, publishes only the relea
 
 ### Phase 4: Both packages in continuous integration
 
-Extend the tests and the install smoke test to cover both packages, and add the script that validates the configuration against the packages on disk.
+Extend the unit-test job to run both packages' suites from a matrix over the configured packages. The install smoke test already covers both packages, because CR-0008 extended `scripts/pi-package.verify.sh` to discover and prove every package under `packages/`, so no smoke-job change is required. Add the script that validates the configuration against the packages on disk, and wire it into `make ci` as a prerequisite that runs regardless of stack state, because the existing `verify` target skips every `scripts/*.verify.sh` when the stack is down and a release-config check must not be silently skipped offline.
 
 ### Phase 5: Convention and documentation
 
@@ -291,11 +294,11 @@ flowchart LR
 | Test File | Test Name | Current Behavior | New Behavior | Reason for Change |
 |-----------|-----------|------------------|--------------|-------------------|
 | `.github/workflows/ci.yml` | unit job | Runs one package's tests with a hard-coded path | Runs both packages' tests from a matrix over the configured packages | A second package exists and must be tested |
-| `.github/workflows/ci.yml` | smoke job | Packs and installs one package | Packs and installs both packages | The install smoke test is what proves a publishable files list |
+| `.github/workflows/ci.yml` | smoke job | Runs `scripts/pi-package.verify.sh`, which CR-0008 already extended to pack and install both packages | Keep the smoke job invoking that script; no change is required to cover both packages | The install smoke test is what proves a publishable files list, and it already covers both packages after CR-0008 |
 | `.github/workflows/publish.yml` | trigger | Runs on a pushed tag matching the bare version form | Publishes inside the release workflow run, for the paths the automation reports as released | The bare tag form is retired, and a tag or release the automation creates starts no workflow run |
 | `.github/workflows/publish.yml` | version agreement guard | Compares the tag, the manifest, and the changelog | Compares the released version against the package manifest | The changelog is generated, so it cannot disagree by hand |
-| `scripts/pi-package.verify.sh` | package checks | Verifies one pi package | Verifies each package it is given | Two packages need the same proof |
-| `Makefile` | ci target | Runs the existing checks | Also runs the release configuration validation | A misconfigured release must fail a check, not a release |
+| `scripts/pi-package.verify.sh` | package checks | Already verifies both packages, discovering every package under `packages/` and taking no package argument (CR-0008 made this change) | No change required; the script already proves both packages | Two packages already get the same proof after CR-0008 |
+| `Makefile` | ci target | Runs the existing checks | Also runs the release configuration validation, wired as its own `ci` prerequisite that runs regardless of stack state, not swept into the stack-gated `verify` target | A misconfigured release must fail a check, not a release; the existing `verify` target SKIPs every `scripts/*.verify.sh` when the stack is down, so a release-config check placed there would be silently skipped offline and must instead run unconditionally |
 
 ### Tests to Remove
 
@@ -341,12 +344,13 @@ Then a release pull request is opened for that package only
   And the other package's version and changelog are unchanged
 ```
 
-### AC-5: The release run publishes, and only what it released (covers FR9, FR13, NFR3)
+### AC-5: The release run publishes, and only what it released (covers FR8, FR9, FR13, NFR3)
 
 ```gherkin
 Given a commit is pushed to the default branch that releases nothing
 When the release workflow runs
-Then the automation reports no release
+Then the automation runs from a workflow in this repository, reading the configuration and manifest files by path
+  And the automation reports no release
   And the publish steps are skipped and nothing reaches the registry
   And when a release pull request is merged, the same run publishes exactly the package paths the automation reports as released
 ```
@@ -465,6 +469,15 @@ When an entry is added to the release configuration and the manifest
 Then the automation releases it with no other change to the workflows
 ```
 
+### AC-18: The unpublished new package can publish its first version (covers FR23)
+
+```gherkin
+Given packages/pi-mlflow-tracing exists on disk, declares a version, and is not on the registry
+When the manifest is seeded and a releasable commit for that package is merged
+Then the automation proposes its intended first published version rather than a version it treats as already released
+  And merging that release pull request publishes that first version to the registry
+```
+
 ## Quality Standards Compliance
 
 ### Build & Compilation
@@ -560,9 +573,11 @@ npx release-please release-pr --dry-run --repo-url desek/agent-observability \
 
 ## Dependencies
 
-* CR-0008, which adds the second package that this automation releases. This change can land first, with one package configured, and gain the second entry when that package exists.
+* CR-0008 is complete: it added and finalized `packages/pi-mlflow-tracing`, the second package this automation releases, and that package now exists on disk. Both packages are configured from the start; there is no longer a single-package interim state to grow from.
 * The existing trusted-publishing relationship on the registry for `@desek/pi-opentelemetry`.
-* A one-time human act to create the registry package and trust relationship for the new package.
+* A one-time human act to create the registry package and trust relationship for the new package `@desek/pi-mlflow-tracing`, which is not yet on the registry.
+
+**Open decision requiring a human choice.** `packages/pi-mlflow-tracing` declares 0.1.0 on disk but has never been published. Seeding `.release-please-manifest.json` at 0.1.0 makes release-please treat 0.1.0 as already released, so it would never publish 0.1.0. Publishing the new package's first version therefore needs a deliberate seeding choice, and the alternatives differ in what first version reaches the registry: seed the manifest below the on-disk version (for example 0.0.0) so the automation proposes 0.1.0 as the first release; use the action's bootstrap-sha to start the package's history from a chosen commit; or publish 0.1.0 once by hand and then seed at 0.1.0 so the automation continues from there. The implementation MUST resolve this before the new package's first release; the choice is recorded here as unresolved because it is a release-policy decision, not a mechanical one.
 
 ## Estimated Effort
 
@@ -574,9 +589,34 @@ Chosen approach: "manifest-driven release-please with component-scoped tags and 
 
 ## Related Items
 
-* Blocks the publication step of CR-0008, which prepares the second package but deliberately publishes nothing.
+* Unblocks the publication of the package CR-0008 delivered. CR-0008 is complete and deliberately published nothing; this change is the release path that lets `@desek/pi-mlflow-tracing` reach the registry.
 * Supersedes the hand-tagged release path introduced with CR-0003.
 
 ## More Information
 
 The release-please facts in this document were read on 2026-08-02 from a local clone of the upstream repository at version 17.11.1, and from a clone of its action. The state of this repository, no tags locally or on the remote, one package at 0.1.0 on the registry, and checkpoint-style commit subjects on the default branch, was read from the repository and the registry on the same day.
+
+Reconciled against the repository on 2026-08-03: `packages/pi-mlflow-tracing` now exists on disk (added and finalized by CR-0008, declaring 0.1.0) and is not on the registry; `@desek/pi-opentelemetry` remains at 0.1.0 on the registry; still no tags locally or on the remote; both packages carry their own `package-lock.json`; and `scripts/pi-package.verify.sh` already proves both packages. The CR was updated to match this state.
+
+<!-- review-summary -->
+Reviewed 2026-08-03 against the repository at HEAD (main). The CR was authored 2026-08-02, before CR-0008 landed; CR-0008 is now complete on this branch, so the CR was reconciled against current reality.
+
+Findings by category:
+- drift: 4
+- coverage-gap: 1
+- convention-compliance: 1
+Total findings: 6 (drift counted separately: 4).
+
+Drift findings and fixes applied:
+1. Stale premise that the second package is "arriving" / will exist later. Both packages exist on disk now. Reconciled in Change Summary, Change Drivers, Current State (added the new-package-on-disk-but-unpublished fact), the Current State Diagram node, Dependencies, and Related Items.
+2. `scripts/pi-package.verify.sh` already verifies both packages and takes no package argument (CR-0008 changed it); the Test Strategy "Tests to Modify" row described it as verifying one package "given" to it. Row corrected to state no change is required.
+3. The `ci.yml` smoke job already covers both packages because it invokes the already-updated `scripts/pi-package.verify.sh`; the Test Strategy row was corrected and Phase 4 updated so only the unit job needs the package matrix.
+4. `packages/pi-mlflow-tracing` declares 0.1.0 on disk but is not on the registry (404). The CR's seeding logic covered only the published package; seeding the manifest at 0.1.0 would make release-please treat 0.1.0 as already released and never publish it. Added FR23 and AC-18, updated Proposed Change item 4 and Phase 1, and recorded the concrete seeding choice as an open decision in Dependencies.
+
+Other findings and fixes applied:
+5. coverage-gap: FR8 (automation runs from a workflow reading config and manifest by path) was covered by no acceptance criterion. Added FR8 to AC-5's coverage and a matching Then clause.
+6. convention-compliance: the Makefile `verify` target SKIPs every `scripts/*.verify.sh` when the stack is down, so a release-config check named `*.verify.sh` and placed there would be silently skipped offline, contradicting FR16 and AC-9 and AC-10. Corrected the Makefile Test Strategy row and Phase 4 to require the release-config validation to run as a `ci` prerequisite regardless of stack state.
+
+Unresolvable items requiring a human decision:
+- The concrete seeding mechanism for the unpublished new package `packages/pi-mlflow-tracing` (seed below the on-disk version, use bootstrap-sha, or publish 0.1.0 by hand once and seed at 0.1.0). This is a release-policy decision, not a mechanical one; it is stated as an open decision in Dependencies and required by FR23, but the specific value is left for the requestor to choose.
+<!-- /review-summary -->
