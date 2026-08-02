@@ -145,14 +145,17 @@ flowchart TD
 13. The dashboard **MUST** contain panels for lines of code, edit tool decisions, commits, and pull requests.
 14. The dashboard **MUST** contain a Loki panel showing the readable agent log stream for the selected agents.
 15. The dashboard **MUST** contain a Tempo panel showing recent agent traces.
-16. Every counter-derived panel **MUST** use a rate or increase function rather than the raw counter value.
-17. Cost panels **MUST** use a currency unit in United States dollars, token panels a short-number unit, and time panels a seconds unit.
-18. Every query **MUST** cover both the `claude_code_*` and the `pi_*` metric families where both exist, selected through the agent variable.
-19. A panel **MUST NOT** group by, display, or filter on a user identity label, specifically `user_email`, `user_id`, `user_account_id`, `user_account_uuid`, or `organization_id`.
-20. Any panel whose data exists for only one agent **MUST** state that limitation in its panel description.
-21. Every panel **MUST** define a "no data" message naming the likely cause and the action that produces data.
-22. The dashboard JSON **MUST** be committed in a form that Grafana loads without modification, and the repository **MUST** contain a script that validates it loads and that every panel returns either data or an explicit empty result rather than a query error.
-23. The README **MUST** describe the dashboard, name its identifier, and give the direct link to it through the single published port.
+16. Every counter-derived panel **MUST** aggregate the last value of each series over the window, with `last_over_time` summed across series, and **MUST NOT** use `rate` or `increase`. The reason is the data shape, and it was measured rather than assumed. The agents label their counters with a session identifier, so each session is a separate short-lived series holding one or two samples. `rate` and `increase` measure growth inside a single series, and inside these series there is none, so both return zero for every panel. Measured on the running stack over the same 24 hour window: `sum(increase(claude_code_cost_usage_USD_total[24h]))` returned `0`, while `sum(last_over_time(claude_code_cost_usage_USD_total[24h]))` returned `0.4317235`, and the token equivalent returned `106177` with a correct split across the four `type` values. A panel built on `rate` or `increase` therefore displays zero while the data is present, which is the worst failure available: it looks working and reports nothing.
+17. Stat panels **MUST** aggregate over the selected range, using `last_over_time` across `$__range`, so the number means "in this window".
+18. Time series panels **MUST** bucket with `last_over_time` across `$__interval`, so a trend line reflects the value each series held in each bucket.
+19. A panel **MUST NOT** plot a raw counter without an aggregation over a window, because a bare counter selector returns nothing once its series fall outside the instant-query lookback.
+20. Cost panels **MUST** use a currency unit in United States dollars, token panels a short-number unit, and time panels a seconds unit.
+21. Every query **MUST** cover both the `claude_code_*` and the `pi_*` metric families where both exist, selected through the agent variable.
+22. A panel **MUST NOT** group by, display, or filter on a user identity label, specifically `user_email`, `user_id`, `user_account_id`, `user_account_uuid`, or `organization_id`.
+23. Any panel whose data exists for only one agent **MUST** state that limitation in its panel description.
+24. Every panel **MUST** define a "no data" message naming the likely cause and the action that produces data.
+25. The dashboard JSON **MUST** be committed in a form that Grafana loads without modification, and the repository **MUST** contain a script that validates it loads and that every panel returns either data or an explicit empty result rather than a query error.
+26. The README **MUST** describe the dashboard, name its identifier, and give the direct link to it through the single published port.
 
 ### Non-Functional Requirements
 
@@ -324,13 +327,16 @@ Then every metric panel shows pi data only
   And on a stack where only one agent has ever run, no panel reports a query error
 ```
 
-### AC-5: Counters are rendered as rates or increases (covers FR16)
+### AC-5: Counters render a true value rather than zero (covers FR16, FR17, FR18, FR19)
 
 ```gherkin
-Given any panel derived from a counter metric
-When its query is inspected
-Then it applies a rate or increase function over an interval or the selected range
-  And no panel plots a raw monotonic counter
+Given the stack holds agent telemetry
+When any counter-derived panel is queried
+Then it aggregates the last value of each series over the window with last_over_time
+  And no panel uses rate or increase
+  And no panel plots a raw counter without a window
+  And the value it returns is non-zero when telemetry exists in the window
+  And a stat panel aggregates over the selected range while a time series panel buckets across the interval
 ```
 
 ### AC-6: Units are correct (covers FR17)
