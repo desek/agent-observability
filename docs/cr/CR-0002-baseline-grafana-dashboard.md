@@ -2,14 +2,15 @@
 id: "CR-0002"
 name: cr-baseline-grafana-dashboard
 description: Add a provisioned baseline Grafana dashboard that visualizes the core metrics, log events, and traces produced by Claude Code and the pi coding agent when telemetry collection is enabled, so that a user who starts the stack and runs one agent session sees populated panels immediately instead of an empty Grafana, with the dashboard committed as JSON, provisioned as code, carrying a stable identifier, and driven by template variables for agent, repository, branch, and model.
-status: "proposed"
+status: "completed"
 date: 2026-08-01
+completed-date: 2026-08-02
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, coding-agent users (Claude Code and pi), open-source contributors
 priority: "high"
 target-version: "0.1.0"
 source-branch: main
-source-commit: none (repository has no commits yet)
+source-commit: 55fee76
 ---
 
 # Baseline Grafana Dashboard for Coding-Agent Telemetry
