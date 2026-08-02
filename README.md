@@ -338,6 +338,8 @@ help` to list the individual targets.
 |------|-------|
 | `compose.yaml` | The whole stack. Run `docker compose up -d` from here. |
 | `.env.example` | The template for `.env`. Documents every variable and its default. |
+| `AGENTS.md` | The example agent instruction file. `CLAUDE.md` is a symbolic link to it. |
+| `.mcp.json` | The example MCP client configuration. No credential to paste. |
 | `Makefile` | `make ci`, the single check entry point. |
 | `LICENSE` | The Apache-2.0 license. |
 | `stack/alloy/` | Alloy collector configuration. |
@@ -356,6 +358,9 @@ help` to list the individual targets.
 | `scripts/mlflow.autolog.claude.sh` | Enable or disable Claude Code conversation tracing against this stack. |
 | `scripts/mlflow.verify.sh` | Verify the MLflow tracking server end to end, with no Python dependency. |
 | `scripts/mlflow.tracing.verify.sh` | Verify that an agent turn produces a conversation trace. |
+| `scripts/deeplink.sh` | Build the four Grafana deep-link kinds, with a self-check that each resolves. |
+| `scripts/mcp.verify.sh` | Verify the Grafana MCP server is reachable, read-only, and internal. |
+| `scripts/agents-md.verify.sh` | Verify every command and metric name in `AGENTS.md` against the stack. |
 | `docs/cr/` | The governance record for this repository. |
 
 ## Service access
@@ -374,6 +379,119 @@ port instead.
 | Mimir | Metric store, Prometheus-compatible API. Readiness at `/prometheus/ready`. | `http://localhost:24317/prometheus/...` |
 | Tempo | Trace store. Readiness at `/tempo/ready`. | `http://localhost:24317/tempo/...` |
 | MLflow | Experiment tracking UI and REST. | `http://localhost:24317/mlflow/` |
+
+## The agent interface
+
+The stack stores good data and, on its own, gives a coding agent no way to know
+it exists. Two files close that gap.
+
+`AGENTS.md` at the repository root teaches an agent the stack in prose: what it
+is, how to tell whether it is running, the address of every backend through the
+one port, the real metric names, a worked query for Mimir, Loki, Tempo, and
+MLflow, how to build a clickable link, and the privacy and ask-first rules.
+`CLAUDE.md` is a symbolic link to it, so Claude Code and any AGENTS.md-aware
+agent read the same content. Every command in `AGENTS.md` is executable, and
+`scripts/agents-md.verify.sh` runs them all and checks every metric name against
+the live store, so the file cannot quietly drift.
+
+### Use it in your own project
+
+`AGENTS.md` is written as an example to copy into the repository you actually
+work in, because most users want this knowledge where they work rather than
+here. Copy the file, then change only the repository name in its example queries
+(the `git_repo="agent-observability"` filter) to your own. Every address in it
+is derived from `EDGE_PORT`, so nothing else changes when you copy it or move
+the stack to another port.
+
+### The MCP server and where to put `.mcp.json`
+
+An MCP-capable agent can query the stack with typed tools instead of shell
+commands. The Grafana MCP server runs as one more internal service behind the
+same single port, holds the Grafana login itself, and exposes read-only tools.
+Because the credential lives in the server, the agent configuration needs no
+token: `.mcp.json` at the repository root is copied verbatim.
+
+* **For a single project**, place `.mcp.json` at that project's root. Checked in,
+  it is shared with everyone who clones the project.
+* **For your whole machine**, add the same `grafana` entry to your agent's
+  user-scope MCP configuration, so every project sees the server without a
+  per-project file.
+
+Confirm the server is reachable, read-only, and internal:
+
+```bash
+./scripts/mcp.verify.sh
+```
+
+The default `.mcp.json` routes MCP through the proxy over HTTP. If you prefer not
+to route MCP through the proxy, run the server over standard input and output
+from your agent configuration instead. That path needs the Grafana login and a
+container invocation with access to the stack network, which is the setup step
+the HTTP path removes:
+
+```json
+{
+  "mcpServers": {
+    "grafana": {
+      "command": "docker",
+      "args": [
+        "run", "--rm", "-i",
+        "--network", "agent-observability_otel",
+        "-e", "GRAFANA_URL=http://grafana:3000",
+        "-e", "GRAFANA_USERNAME=admin",
+        "-e", "GRAFANA_PASSWORD=admin",
+        "grafana/mcp-grafana:1.0.0",
+        "-t", "stdio", "-disable-write",
+        "-enabled-tools", "search,datasource,dashboard,prometheus,loki,navigation"
+      ]
+    }
+  }
+}
+```
+
+### Enabling writing tools, and what that means
+
+The server runs read-only by default: its `command` in `compose.yaml` passes
+`-disable-write`, and its `-enabled-tools` list holds only the read categories
+this stack runs (search, datasource, dashboard, prometheus, loki, navigation).
+To enable writing tools, remove the `-disable-write` line from the `mcp-grafana`
+service in `compose.yaml` and restart the stack.
+
+Understand the consequence before you do. The server authenticates to Grafana
+with the stack's administrator credentials. With writing tools enabled, anything
+that can reach the loopback port can create, change, or delete dashboards,
+folders, and other Grafana objects through the MCP endpoint, as an administrator.
+Read-only is the default precisely because it keeps that administrator access
+safe. Leave it off unless you specifically need an agent to modify Grafana.
+
+### Deep links
+
+A useful answer about telemetry ends in a link the user can click to open
+exactly that view. The link format is version-specific and easy to get subtly
+wrong, so it lives in one script rather than in prose. `scripts/deeplink.sh`
+builds the four kinds, deriving host and port from `EDGE_PORT`:
+
+```bash
+./scripts/deeplink.sh dashboard --var agent=claude-code --from now-24h --to now
+./scripts/deeplink.sh metrics 'sum by (type) (last_over_time(claude_code_token_usage_tokens_total[24h]))'
+./scripts/deeplink.sh logs '{service_name="claude-code"}'
+./scripts/deeplink.sh trace <traceid>
+```
+
+Each prints one URL, for example
+`http://localhost:24317/d/agent-observability?from=now-24h&to=now&var-agent=claude-code`.
+The script records the exact format for each kind and the Grafana version it was
+verified against. Its self-check asserts every kind still resolves to its view,
+so a Grafana upgrade that changes the format fails a check rather than silently
+producing a page that shows the wrong thing:
+
+```bash
+./scripts/deeplink.sh --self-check
+```
+
+`AGENTS.md` tells the agent to build links with this script rather than by hand.
+An MCP-capable agent can instead call the server's `generate_deeplink` tool,
+which produces the same format.
 
 ## Git provenance labels
 

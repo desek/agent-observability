@@ -1,0 +1,10 @@
+{
+  "_agents_index": "Example MCP client configuration wiring an MCP-capable agent to the internal Grafana MCP server through the single edge port, with no credential to paste.",
+  "_comment": "Copy this file to your project root, or merge the grafana entry into your existing .mcp.json. It carries no credential and no absolute path: the server holds the Grafana login internally, so nothing is pasted here. The url uses the default port 24317; if you set EDGE_PORT to another value, change the port in the url to match. See the README section 'The agent interface' for where to place this file for a project or for a whole machine, and for the stdio alternative.",
+  "mcpServers": {
+    "grafana": {
+      "type": "http",
+      "url": "http://localhost:24317/grafana-mcp/mcp"
+    }
+  }
+}
