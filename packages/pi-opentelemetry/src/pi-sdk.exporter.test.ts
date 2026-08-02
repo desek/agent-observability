@@ -1,10 +1,13 @@
 /**
  * @agents-index End-to-end exporter test that loads this extension through the
  *   real pi SDK loader (@earendil-works/pi-coding-agent) exactly as pi loads it,
- *   drives pi lifecycle events, and asserts the three OTLP gRPC signals actually
- *   arrive at an in-process collector carrying the expected resource service name;
- *   also asserts the core no-op promise: switched off or with no collector
- *   reachable, nothing is exported and no error escapes.
+ *   drives pi lifecycle events, and asserts the three OTLP signals actually arrive
+ *   at an in-process collector carrying the expected resource service name, over
+ *   gRPC and over HTTP/protobuf, including a per-signal split (metrics HTTP,
+ *   traces gRPC) in one run; also asserts the core no-op promise (switched off or
+ *   with no collector reachable, nothing is exported and no error escapes) and
+ *   that an unsupported OTEL_EXPORTER_OTLP_PROTOCOL disables only that signal
+ *   without raising into pi.
  *
  * Why: the package's whole failure mode is installing cleanly and doing nothing.
  * The 29 unit tests exercise the parts in isolation; nothing else proves that pi
@@ -29,6 +32,7 @@
 
 import assert from "node:assert/strict";
 import * as fs from "node:fs";
+import * as http from "node:http";
 import * as os from "node:os";
 import * as path from "node:path";
 import { after, test } from "node:test";
@@ -112,6 +116,54 @@ async function startReceiver(): Promise<Receiver> {
     bytesFor: (signal) => Buffer.concat(captured[signal]),
     total: () => captured.metrics.length + captured.logs.length + captured.traces.length,
     shutdown: () => server.forceShutdown(),
+  };
+}
+
+/** OTLP HTTP resource path each signal is posted to, appended to the base URL. */
+const HTTP_PATH = {
+  metrics: "/v1/metrics",
+  logs: "/v1/logs",
+  traces: "/v1/traces",
+} as const;
+
+/**
+ * Stand up an in-process OTLP HTTP/protobuf receiver on an ephemeral loopback
+ * port. Unlike the gRPC receiver, this is an ordinary HTTP server: it routes each
+ * POST by its `/v1/{signal}` path and records the raw protobuf request body, so
+ * the same byte-search assertions used for gRPC verify the HTTP wire content.
+ *
+ * @returns The started {@link Receiver}, over HTTP.
+ */
+async function startHttpReceiver(): Promise<Receiver> {
+  const captured: Receiver["captured"] = { metrics: [], logs: [], traces: [] };
+  const server = http.createServer((req, res) => {
+    const chunks: Buffer[] = [];
+    req.on("data", (c: Buffer) => chunks.push(c));
+    req.on("end", () => {
+      const body = Buffer.concat(chunks);
+      for (const signal of ["metrics", "logs", "traces"] as const) {
+        if (req.url?.endsWith(HTTP_PATH[signal])) captured[signal].push(body);
+      }
+      // An empty 200 body is a valid OTLP HTTP ExportServiceResponse (every field
+      // optional), which the exporter deserializes without error.
+      res.statusCode = 200;
+      res.setHeader("content-type", "application/x-protobuf");
+      res.end();
+    });
+  });
+  const port = await new Promise<number>((resolve, reject) => {
+    server.listen(0, "127.0.0.1", () => {
+      const addr = server.address();
+      if (addr && typeof addr === "object") resolve(addr.port);
+      else reject(new Error("http receiver failed to bind"));
+    });
+  });
+  return {
+    port,
+    captured,
+    bytesFor: (signal) => Buffer.concat(captured[signal]),
+    total: () => captured.metrics.length + captured.logs.length + captured.traces.length,
+    shutdown: () => server.close(),
   };
 }
 
@@ -209,7 +261,15 @@ function resetGlobalProviders(): void {
 }
 
 /** Environment keys this test mutates; snapshotted and restored around each case. */
-const ENV_KEYS = ["PI_OTEL_ENABLE", "OTEL_SERVICE_NAME", "OTEL_EXPORTER_OTLP_ENDPOINT"];
+const ENV_KEYS = [
+  "PI_OTEL_ENABLE",
+  "OTEL_SERVICE_NAME",
+  "OTEL_EXPORTER_OTLP_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_PROTOCOL",
+  "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+  "OTEL_EXPORTER_OTLP_METRICS_PROTOCOL",
+  "OTEL_EXPORTER_OTLP_TRACES_PROTOCOL",
+];
 
 /**
  * Run a body with a temporary environment, restoring the prior environment and
@@ -365,4 +425,168 @@ test("silent when the collector is unreachable: no throw, and no error escapes",
       await assert.doesNotReject(() => fire(loaded, "session_shutdown", {}));
     },
   );
+});
+
+test("http/protobuf carries all three signals to an HTTP collector", async () => {
+  // Proof 1: with OTEL_EXPORTER_OTLP_PROTOCOL=http/protobuf, every signal is
+  // exported over HTTP, not gRPC. The receiver is an ordinary HTTP server; the
+  // exporter appends /v1/{signal} to the base endpoint, so each signal lands on
+  // its own route and the same byte-search proves the wire content.
+  const receiver = await startHttpReceiver();
+  try {
+    await withEnv(
+      {
+        PI_OTEL_ENABLE: "1",
+        OTEL_SERVICE_NAME: SERVICE_NAME,
+        OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${receiver.port}`,
+        OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
+      },
+      async () => {
+        const loaded = await loadThroughPi();
+        assert.deepEqual(loaded.errors, [], "pi loaded the extension with no error");
+
+        await driveInteraction(loaded);
+        await waitFor(
+          () =>
+            receiver.captured.metrics.length > 0 &&
+            receiver.captured.logs.length > 0 &&
+            receiver.captured.traces.length > 0,
+        );
+
+        const svc = Buffer.from(SERVICE_NAME);
+        const key = Buffer.from("service.name");
+        for (const signal of ["metrics", "logs", "traces"] as const) {
+          const bytes = receiver.bytesFor(signal);
+          assert.ok(receiver.captured[signal].length > 0, `${signal} export arrived over HTTP`);
+          assert.ok(bytes.includes(key), `${signal} resource carries the service.name key`);
+          assert.ok(bytes.includes(svc), `${signal} resource carries service name ${SERVICE_NAME}`);
+        }
+        assert.ok(
+          receiver.bytesFor("metrics").includes(Buffer.from("pi.session.count")),
+          "HTTP metrics carry the pi.session.count instrument",
+        );
+        assert.ok(
+          receiver.bytesFor("logs").includes(Buffer.from("pi.user_prompt")),
+          "HTTP logs carry the pi.user_prompt event",
+        );
+        assert.ok(
+          receiver.bytesFor("traces").includes(Buffer.from("pi.interaction")),
+          "HTTP traces carry the pi.interaction span",
+        );
+
+        await fire(loaded, "session_shutdown", {});
+      },
+    );
+  } finally {
+    receiver.shutdown();
+  }
+});
+
+test("per-signal transport: metrics over HTTP and traces over gRPC in one run", async () => {
+  // Proof 4: the per-signal protocol override selects a different transport for
+  // each signal in the same session. Metrics go to the HTTP receiver, traces to
+  // the gRPC receiver, and each receiver sees only its own signal.
+  const httpReceiver = await startHttpReceiver();
+  const grpcReceiver = await startReceiver();
+  try {
+    await withEnv(
+      {
+        PI_OTEL_ENABLE: "1",
+        OTEL_SERVICE_NAME: SERVICE_NAME,
+        // Shared endpoint and default protocol (grpc) carry traces to the gRPC
+        // receiver; metrics are overridden to HTTP on their own endpoint.
+        OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${grpcReceiver.port}`,
+        OTEL_EXPORTER_OTLP_METRICS_ENDPOINT: `http://127.0.0.1:${httpReceiver.port}`,
+        OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: "http/protobuf",
+        OTEL_EXPORTER_OTLP_TRACES_PROTOCOL: "grpc",
+      },
+      async () => {
+        const loaded = await loadThroughPi();
+        assert.deepEqual(loaded.errors, [], "pi loaded the extension with no error");
+
+        await driveInteraction(loaded);
+        await waitFor(
+          () =>
+            httpReceiver.captured.metrics.length > 0 && grpcReceiver.captured.traces.length > 0,
+        );
+
+        assert.ok(
+          httpReceiver.bytesFor("metrics").includes(Buffer.from("pi.session.count")),
+          "metrics reached the HTTP receiver",
+        );
+        assert.equal(
+          grpcReceiver.captured.metrics.length,
+          0,
+          "no metrics leaked to the gRPC receiver",
+        );
+        assert.ok(
+          grpcReceiver.bytesFor("traces").includes(Buffer.from("pi.interaction")),
+          "traces reached the gRPC receiver",
+        );
+        assert.equal(
+          httpReceiver.captured.traces.length,
+          0,
+          "no traces leaked to the HTTP receiver",
+        );
+
+        await fire(loaded, "session_shutdown", {});
+      },
+    );
+  } finally {
+    httpReceiver.shutdown();
+    grpcReceiver.shutdown();
+  }
+});
+
+test("an unsupported protocol disables only that signal and never raises into pi", async () => {
+  // Proof 3: a nonsense protocol on one signal disables that signal, emits an
+  // actionable diagnostic to stderr, and leaves the others exporting. The whole
+  // interaction still completes with no error reaching pi.
+  const receiver = await startReceiver();
+  const stderrChunks: string[] = [];
+  const originalWrite = process.stderr.write.bind(process.stderr);
+  // Capture stderr so the diagnostic can be asserted; delegate real writes on.
+  (process.stderr as { write: (s: string | Uint8Array) => boolean }).write = (s) => {
+    stderrChunks.push(typeof s === "string" ? s : Buffer.from(s).toString("utf8"));
+    return true;
+  };
+  try {
+    await withEnv(
+      {
+        PI_OTEL_ENABLE: "1",
+        OTEL_SERVICE_NAME: SERVICE_NAME,
+        OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${receiver.port}`,
+        // Metrics select a value the extension does not support; traces and logs
+        // stay on the default gRPC transport.
+        OTEL_EXPORTER_OTLP_METRICS_PROTOCOL: "http/json",
+      },
+      async () => {
+        const loaded = await loadThroughPi();
+        assert.deepEqual(loaded.errors, [], "the extension loads despite the bad protocol");
+
+        await assert.doesNotReject(
+          () => driveInteraction(loaded),
+          "an unsupported protocol never raises into the agent",
+        );
+        await waitFor(() => receiver.captured.traces.length > 0);
+
+        // The other signals still export over gRPC.
+        assert.ok(receiver.captured.traces.length > 0, "traces still exported");
+        assert.ok(receiver.captured.logs.length > 0, "logs still exported");
+        // The disabled metrics signal put nothing on the wire.
+        assert.equal(receiver.captured.metrics.length, 0, "metrics did not export");
+
+        await assert.doesNotReject(() => fire(loaded, "session_shutdown", {}));
+      },
+    );
+
+    const diagnostic = stderrChunks.join("");
+    assert.match(diagnostic, /metrics signal is not exported/, "names the disabled signal");
+    assert.match(diagnostic, /"http\/json" is not supported/, "names the offending value");
+    assert.match(diagnostic, /"grpc" or "http\/protobuf"/, "lists the supported values");
+    assert.match(diagnostic, /OTEL_EXPORTER_OTLP_METRICS_PROTOCOL/, "names the variable to change");
+  } finally {
+    (process.stderr as { write: typeof originalWrite }).write = originalWrite;
+    receiver.shutdown();
+  }
 });

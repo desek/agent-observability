@@ -10,8 +10,8 @@ never seen this repository.
 
 An OpenTelemetry extension for the [pi](https://github.com/earendil-works/pi)
 coding agent. It instruments pi's lifecycle and exports all three OpenTelemetry
-signals, metrics, log events, and traces, over OTLP gRPC to any OpenTelemetry
-collector. The signal names and attributes match Claude Code's built-in
+signals, metrics, log events, and traces, over OTLP to any OpenTelemetry
+collector, using gRPC by default or HTTP/protobuf when selected. The signal names and attributes match Claude Code's built-in
 telemetry, with the `claude_code.` prefix replaced by `pi.`, so pi and Claude
 Code stay distinguishable in one backend while remaining comparable.
 
@@ -107,16 +107,16 @@ taken from `src/config.env.ts` and `src/health.alloy.ts`.
 |----------|---------|--------|
 | `PI_OTEL_ENABLE` | unset | Master switch. Truthy enables export, a false value (`0`, `false`, `no`, `off`, empty) disables it, unset defers to the dynamic default. |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | Shared OTLP endpoint for all signals. When set while `PI_OTEL_ENABLE` is unset, it also enables export without a health probe. |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | Shared OTLP protocol for all signals. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | Shared OTLP protocol for all signals. Supported values are `grpc` (the default) and `http/protobuf`. For `http/protobuf` the endpoint's `/v1/{metrics,logs,traces}` path is appended per signal. Any other value (for example `http/json`) is unsupported: that signal is not exported, an actionable message naming the value and the supported values is written to stderr, and the other signals are unaffected. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | none | Comma-separated `key=value` headers applied to every exporter. |
 
 ### Per-signal exporter selection and overrides
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `OTEL_METRICS_EXPORTER` / `OTEL_LOGS_EXPORTER` / `OTEL_TRACES_EXPORTER` | `otlp` | `otlp` selects the OTLP gRPC exporter for that signal; `none` disables that signal. Any value other than `none` is treated as `otlp`. |
+| `OTEL_METRICS_EXPORTER` / `OTEL_LOGS_EXPORTER` / `OTEL_TRACES_EXPORTER` | `otlp` | `otlp` selects the OTLP exporter for that signal, over the transport its protocol names; `none` disables that signal. Any value other than `none` is treated as `otlp`. |
 | `OTEL_EXPORTER_OTLP_{METRICS,LOGS,TRACES}_ENDPOINT` | shared endpoint | Per-signal endpoint override. |
-| `OTEL_EXPORTER_OTLP_{METRICS,LOGS,TRACES}_PROTOCOL` | shared protocol | Per-signal protocol override. |
+| `OTEL_EXPORTER_OTLP_{METRICS,LOGS,TRACES}_PROTOCOL` | shared protocol | Per-signal protocol override, so one signal can go over `http/protobuf` while another stays on `grpc`. Same supported values and unsupported-value handling as `OTEL_EXPORTER_OTLP_PROTOCOL` above. |
 | `OTEL_METRIC_EXPORT_INTERVAL` | SDK default | Metric reader export interval, in milliseconds. |
 | `OTEL_LOGS_EXPORT_INTERVAL` | SDK default | Log processor export interval, in milliseconds. |
 | `OTEL_TRACES_EXPORT_INTERVAL` | SDK default | Span processor export interval, in milliseconds. |

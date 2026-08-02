@@ -16,7 +16,12 @@ a private repository; this release makes it installable by any pi user.
   the pi package gallery through the `pi-package` keyword.
 - OpenTelemetry export at parity with Claude Code's built-in telemetry: the eight
   `pi.` metric instruments, the `pi.` log-event family, and the interaction,
-  model-request, tool, and tool-execution span hierarchy, all over OTLP gRPC.
+  model-request, tool, and tool-execution span hierarchy, over OTLP.
+- Transport selection through `OTEL_EXPORTER_OTLP_PROTOCOL` and its per-signal
+  variants: `grpc` (the default) or `http/protobuf`, resolved per signal so one
+  signal can go over HTTP while another stays on gRPC. An unsupported value
+  disables that one signal with an actionable message on stderr instead of
+  silently exporting over gRPC, and leaves the other signals unaffected.
 - Safe-by-default operation: the extension emits nothing unless its master switch
   is truthy or a health-gated dynamic default enables it, stays silent when no
   collector is reachable, never propagates an exception into the agent, and keeps
