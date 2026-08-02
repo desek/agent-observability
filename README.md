@@ -5,15 +5,15 @@
      a map rather than accreting into a manual.
      @agents-index: Repository front page as a landing page: what the stack is, the screenshots, what you get, the one-command start, the map of the documentation under docs/, and the boundaries. -->
 
-# Local Coding-Agent Observability Stack
+# Agent Observability Stack
 
-This project is a local-first observability stack: one command turns a fresh
-clone into a working telemetry plane that stores metrics, log events, and traces
-on your machine and nowhere else. Its headline workload is coding agents such as
-Claude Code and pi, whose telemetry answers what an agent did, what it cost, how
-long it took, which tools it called, and what it was asked. Any local application
-that speaks OpenTelemetry is a workload here too, so the stack reads an agent and
-the service it is editing side by side.
+This project is a local-first observability stack for coding agents: one command
+turns a fresh clone into a working telemetry plane that stores metrics, log
+events, and traces on your machine and nowhere else. It answers what an agent
+such as Claude Code or pi did, what it cost, how long it took, which tools it
+called, and what it was asked. Any local application that speaks OpenTelemetry is
+a workload here too, so the stack reads an agent and the service it is editing
+side by side.
 
 ![The provisioned Coding Agent Observability dashboard showing populated panels across every row: cost, token, session, and active-time stats at the top, cost and token rates by model and type, per-repository cost, lines of code and tool decisions, commit and pull-request counts, the readable conversation and tool log stream, and the recent trace list.](docs/images/dashboard.png)
 

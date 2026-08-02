@@ -58,10 +58,23 @@ worktree: "/Users/desek/Repo/desek/experiments/agent-observability"
 
   One consequence worth stating. `scripts/stack.verify.sh` scans for governance identifiers only outside `docs`, so the seven new documents sit in the exempt directory. They are not unguarded: the governance check in `readme.verify.sh` now runs over each document in the set by name, which is what the per-document PASS lines report.
 
+### Attempt 3 — retitle the front page and move the dropped words into the opening sentence
+
+* **Change:** `README.md`, the level-1 heading and the paragraph under it. The title is now "Agent Observability Stack", replacing "Local Coding-Agent Observability Stack". The opening sentence absorbs what the shorter title no longer states: it now reads "a local-first observability stack for coding agents", where it previously said only "a local-first observability stack" and left "coding agents" to the second sentence. The second sentence was rewritten from "Its headline workload is coding agents such as Claude Code and pi, whose telemetry answers what an agent did" to "It answers what an agent such as Claude Code or pi did", which removes the restatement the new first sentence made redundant.
+
+* **Reason:** the title now matches the repository name, `agent-observability`, so a reader who arrives from the directory name or from a clone meets the same words. A title is not a place to carry qualifiers: "Local" and "Coding-" are facts about the product, and the opening sentence states both with room to say what they mean, where the title could only assert them.
+
+* **Evidence:** both dropped words survive in the first sentence, which is where a reader looks next: "local-first" and "on your machine and nowhere else" carry the first, "for coding agents" carries the second. No other tracked file outside the governance record used the old title, so the change is confined to the two lines that hold it. The governance record keeps the old title in its own heading, which is correct: it names what that change request was called at the time.
+
+  `scripts/readme.verify.sh` passes: 9 command blocks run, the posture is stated once, both screenshots keep their alternative text, and all 48 relative links resolve. The screenshot alternative text still names the "Coding Agent Observability dashboard", which is not drift: that is the provisioned Grafana dashboard's own title, asserted by `scripts/dashboard.verify.sh`, and it is a different name from the project's.
+
+  `make ci` exits 0, exit code read rather than inferred.
+
 ## What Stands Now
 
 * The metric store accepts back-dated samples up to 72 hours. Verified at 6, 24, 48, and 71 hours, with 100 hours correctly refused.
 * Back-dated samples older than roughly twelve hours are not immediately queryable. They become visible after the block ships and the store synchronises, which is up to fifteen minutes on the current settings. Anything that seeds history and then reads or photographs it must account for that delay, or the settings that govern it must change.
+* The project's front page is titled "Agent Observability Stack", matching the repository name. The local-first posture and the coding-agent workload are stated in the opening sentence rather than in the title.
 * The reader documentation is a set of eight files, not one. `README.md` is a 100-line landing page carrying the pictures, what you get, the one-command start, the map, and the boundaries. Seven documents under `docs/` each answer one question and are each the single home for that answer.
 * The privacy posture lives in `docs/privacy.md`. It is stated once there, linked from the front page and from `AGENTS.md`, and a second copy of either posture sentence anywhere else fails a check.
 * `scripts/readme.verify.sh` verifies the document set, not the README alone: every fenced `bash` block in the set runs, no document carries a governance identifier, every document is linked from the front page, and every relative link resolves.
