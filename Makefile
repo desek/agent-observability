@@ -10,7 +10,7 @@ SHELL := /bin/bash
 
 # The pinned edge image used to validate the proxy configuration without a
 # local install of the proxy. Kept in sync with the compose file.
-HAPROXY_IMAGE := haproxy:3.4.2-trixie
+HAPROXY_IMAGE := haproxy:3.4.3-trixie
 
 # Path to the proxy configuration, present once the stack is ported.
 HAPROXY_CFG := stack/haproxy/haproxy.cfg

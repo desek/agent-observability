@@ -55,13 +55,13 @@ stack.
 
 | Component | Role | Version |
 |-----------|------|---------|
-| Grafana | Dashboards and UI | 13.1.0 |
-| Alloy | OTLP collector and router | v1.17.1 |
-| Loki | Log store | 3.7.3 |
-| Mimir | Metric store | 3.1.2 |
+| Grafana | Dashboards and UI | 13.1.1 |
+| Alloy | OTLP collector and router | v1.18.0 |
+| Loki | Log store | 3.7.4 |
+| Mimir | Metric store | 3.1.4 |
 | Tempo | Trace store | 3.0.2 |
-| MLflow | Conversation tracking server | v3.14.0 |
-| HAProxy | Edge proxy, single loopback port | 3.4.2-trixie |
+| MLflow | Conversation tracking server | v3.15.0 |
+| HAProxy | Edge proxy, single loopback port | 3.4.3-trixie |
 | Grafana MCP server | Read-only typed tools for agents | 1.0.0 |
 
 ## Persistence and teardown

@@ -18,7 +18,7 @@
 # rehosted onto the stack's single edge port, and each was opened in a browser
 # against the running Grafana and confirmed to resolve to the intended view.
 #
-#   Grafana version verified against: 13.1.0
+#   Grafana version verified against: 13.1.1
 #   MCP server that produced the formats: grafana/mcp-grafana:1.0.0
 #
 # Verified formats (BASE is http://localhost:<EDGE_PORT>):
@@ -29,7 +29,7 @@
 #              range are applied.
 #   explore    BASE/explore?left=<url-encoded compact JSON>, where the JSON is
 #              {"datasource":"<uid>","queries":[<query>],"range":{"from":"<from>","to":"<to>"}}
-#              Grafana 13.1.0 migrates the legacy left= parameter into its
+#              Grafana 13.1.1 migrates the legacy left= parameter into its
 #              current panes=+schemaVersion=1 form, preserving datasource, query,
 #              and range. The per-kind query object is:
 #                metrics  {"expr":"<promql>","refId":"A"}          datasource uid mimir

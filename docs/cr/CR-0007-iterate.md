@@ -90,6 +90,24 @@ worktree: "/Users/desek/Repo/desek/experiments/agent-observability"
 
 * **Supersedes:** nothing. Attempt 1 stands: the 72 hour window is still what makes a back-dated metric sample land at all, and this attempt chooses a span well inside it rather than undoing it.
 
+### Attempt 4 — bump six of the eight pinned images to their current release
+
+* **Change:** six images moved to their newest published release, and two were already current and were left alone. Loki `3.7.3` to `3.7.4`, Mimir `3.1.2` to `3.1.4`, Alloy `v1.17.1` to `v1.18.0`, Grafana `13.1.0` to `13.1.1`, HAProxy `3.4.2-trixie` to `3.4.3-trixie`, MLflow `v3.14.0` to `v3.15.0`. Tempo stays at `3.0.2` and the Grafana MCP server stays at `1.0.0`, because each is the newest release of its project. The version is written in more places than the compose file, so the bump also changed `stack/mlflow/Dockerfile` (the build base), `Makefile` (`HAPROXY_IMAGE`), `docs/architecture.md` (the components table), and the comments that name a version they were verified against: `scripts/deeplink.sh`, `stack/haproxy/haproxy.cfg`, and three comments inside `compose.yaml`. A new check was added to `scripts/stack.verify.sh`, for the reason below.
+
+* **Reason:** the pins were between one patch and one minor behind, and nothing was more than one minor behind, so the bump was cheap while it stayed cheap. Deferring it makes the eventual jump larger and its failures harder to attribute to one change.
+
+* **Evidence:** the bump broke the stack, which is the finding, and the break is now a check rather than a memory.
+
+  MLflow did not come back. `docker compose up -d` recreated it and the container went unhealthy, with `ModuleNotFoundError: No module named 'prometheus_flask_exporter'` at import. The cause is that the mlflow service both builds a thin image from `stack/mlflow/Dockerfile` and carries an `image:` tag naming the pinned base, so the version is written twice. Changing only the compose tag made the two disagree, and compose then ran the base image, which does not carry the baked package, rather than the built one. The symptom is remote from the cause: the error names a Python module, and the mistake was a tag in a different file.
+
+  The fix is two parts. `stack/mlflow/Dockerfile` now names `v3.15.0` as its base, and `docker compose up -d --build` rebuilds the thin image; MLflow then reports healthy. The second part is that `scripts/stack.verify.sh` now asserts the Dockerfile base and the compose image tag name the same version, and it reports `both name v3.15.0`. A future bump that changes one and forgets the other fails a check that names the fix, rather than a container that names a missing module.
+
+  Everything else came up on the new images with no change: Alloy, Grafana, and HAProxy report healthy, and Loki, Mimir, and Tempo answer their readiness endpoints. The Alloy healthcheck was the risk worth naming, because it speaks HTTP over bash's `/dev/tcp` and so depends on the image shipping bash; `v1.18.0` still does, and the check passes. The Grafana deep-link formats were re-verified rather than assumed: `scripts/deeplink.sh --self-check` resolves all four link kinds on 13.1.1, so the comment recording the version they were verified against was updated to 13.1.1 rather than left claiming 13.1.0.
+
+  `scripts/stack.verify.sh` passes all seven checks. `shellcheck` is clean. `make ci` exits 0, exit code read rather than inferred.
+
+  Two residues. The committed MLflow screenshot and the walkthrough show `mlflow 3.14.0` in the sidebar, so they are now one minor version behind what runs; regenerating them is a maintainer step against a seeded stack and was not done here. And `scripts/demo.seed.sh` names Mimir 3.1.2 in a comment about the absent delete API; that file carries an unrelated uncommitted change in the working tree, so it was left untouched rather than swept into this commit.
+
 ## What Stands Now
 
 * The metric store accepts back-dated samples up to 72 hours. Verified at 6, 24, 48, and 71 hours, with 100 hours correctly refused.
@@ -99,4 +117,7 @@ worktree: "/Users/desek/Repo/desek/experiments/agent-observability"
 * The reader documentation is a set of eight files, not one. `README.md` is a 100-line landing page carrying the pictures, what you get, the one-command start, the map, and the boundaries. Seven documents under `docs/` each answer one question and are each the single home for that answer.
 * The privacy posture lives in `docs/privacy.md`. It is stated once there, linked from the front page and from `AGENTS.md`, and a second copy of either posture sentence anywhere else fails a check.
 * `scripts/readme.verify.sh` verifies the document set, not the README alone: every fenced `bash` block in the set runs, no document carries a governance identifier, every document is linked from the front page, and every relative link resolves.
+* The pinned images are Loki 3.7.4, Mimir 3.1.4, Tempo 3.0.2, Alloy v1.18.0, Grafana 13.1.1, MLflow v3.15.0, HAProxy 3.4.3-trixie, and Grafana MCP 1.0.0. Every one is the newest published release of its project as of 2026-08-02.
+* The MLflow version is written twice, in `compose.yaml` and in `stack/mlflow/Dockerfile`, and `scripts/stack.verify.sh` asserts the two agree. A bump changes both and rebuilds with `docker compose up -d --build`.
+* The committed screenshots and the walkthrough show MLflow 3.14.0, one minor version behind what runs. They want a re-capture.
 * `make ci` passes, exit code 0.

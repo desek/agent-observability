@@ -42,7 +42,7 @@ services:
   # Loki: single-binary log store with filesystem object storage and native
   # OTLP log ingestion. Query API on 3100.
   loki:
-    image: grafana/loki:3.7.3
+    image: grafana/loki:3.7.4
     command: ["-config.file=/etc/loki/config.yaml"]
     volumes:
       - ./stack/loki/config.yaml:/etc/loki/config.yaml:ro
@@ -56,7 +56,7 @@ services:
   # Mimir: monolithic-mode metrics store with filesystem blocks storage and
   # native OTLP metric ingestion. Prometheus-compatible query API on 9009.
   mimir:
-    image: grafana/mimir:3.1.2
+    image: grafana/mimir:3.1.4
     command: ["-config.file=/etc/mimir/config.yaml"]
     volumes:
       - ./stack/mimir/config.yaml:/etc/mimir/config.yaml:ro
@@ -86,7 +86,7 @@ services:
   # traces to Tempo. Host OTLP exposure is loopback only, through the edge proxy,
   # so prompt and tool content is never exposed on external interfaces. UI on 12345.
   alloy:
-    image: grafana/alloy:v1.17.1
+    image: grafana/alloy:v1.18.0
     command:
       - run
       - --server.http.listen-addr=0.0.0.0:12345
@@ -110,7 +110,7 @@ services:
       tempo:
         condition: service_started
     healthcheck:
-      # Alloy serves /-/ready once the pipeline is running. The v1.17 image
+      # Alloy serves /-/ready once the pipeline is running. The v1.18 image
       # ships bash but no wget/curl, so the check speaks HTTP over bash's
       # /dev/tcp and asserts a 200 status line.
       test: ["CMD", "bash", "-c", "exec 3<>/dev/tcp/127.0.0.1/12345 && printf 'GET /-/ready HTTP/1.0\\r\\n\\r\\n' >&3 && grep -q ' 200 ' <&3"]
@@ -122,7 +122,7 @@ services:
   # Grafana: visualization layer, pre-provisioned with Loki, Mimir, and Tempo
   # datasources (no manual setup). Reachable on host port 3000.
   grafana:
-    image: grafana/grafana:13.1.0
+    image: grafana/grafana:13.1.1
     environment:
       # Default admin credentials for the local-only stack; documented in the
       # README. Anonymous access stays disabled.
@@ -230,7 +230,7 @@ services:
   # present; the container frontend stays on 24317. Image pinned to the
   # Debian-based official tag (never latest).
   haproxy:
-    image: haproxy:3.4.2-trixie
+    image: haproxy:3.4.3-trixie
     volumes:
       - ./stack/haproxy/haproxy.cfg:/usr/local/etc/haproxy/haproxy.cfg:ro
     ports:
@@ -273,10 +273,10 @@ services:
   mlflow:
     build:
       context: ./stack/mlflow
-    image: ghcr.io/mlflow/mlflow:v3.14.0
+    image: ghcr.io/mlflow/mlflow:v3.15.0
     # Ensure the store and artifact subdirectories exist on the named volume,
     # then exec the tracking server. Flags are source-verified against the
-    # v3.14.0 `mlflow server` CLI:
+    # v3.15.0 `mlflow server` CLI:
     #   --host 0.0.0.0        bind all container interfaces so HAProxy reaches it
     #   --backend-store-uri   SQLite (database-backed, required for the registry)
     #   --serve-artifacts     server-proxied artifacts (single-door property)
@@ -300,7 +300,7 @@ services:
       - otel
     restart: unless-stopped
     healthcheck:
-      # The mlflow v3.14.0 image (python:3.10) ships bash but no curl/wget, so
+      # The mlflow v3.15.0 image (python:3.10) ships bash but no curl/wget, so
       # the check speaks HTTP over bash's /dev/tcp against the server's own
       # health endpoint. The path carries the --static-prefix (/mlflow/health)
       # and the request sends `Host: localhost`, which MLflow's default
@@ -336,7 +336,7 @@ services:
   # published edge port is not exposed; the script derives the edge address from
   # EDGE_PORT only when this variable is unset (host runs), so no port is literal.
   mlflow-provision:
-    image: ghcr.io/mlflow/mlflow:v3.14.0
+    image: ghcr.io/mlflow/mlflow:v3.15.0
     entrypoint: ["bash", "/scripts/mlflow.provision.sh"]
     environment:
       MLFLOW_PROVISION_URL: http://mlflow:5000/mlflow

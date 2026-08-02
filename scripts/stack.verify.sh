@@ -2,10 +2,10 @@
 #
 # stack.verify.sh
 #
-# @agents-index Outside-in verifier that proves the running stack in one run: one loopback host port, six readiness endpoints, three healthy datasources, no parent references, no floating image tags.
+# @agents-index Outside-in verifier that proves the running stack in one run: one loopback host port, six readiness endpoints, three healthy datasources, no parent references, no floating image tags, and an mlflow base tag that matches its Dockerfile.
 #
 # Purpose: prove the stack from the outside, the way a user reaches it, in a
-# single run. It asserts five facts, each reported as its own check:
+# single run. It asserts seven facts, each reported as its own check:
 #   1. Exactly one service publishes a host port, and it binds 127.0.0.1.
 #   2. All six endpoints answer through that single port.
 #   3. The three Grafana datasources exist and their health checks pass, and
@@ -14,6 +14,8 @@
 #   5. No tracked file outside docs references a parent-only path or a
 #      governance identifier.
 #   6. No image reference in compose.yaml uses the floating latest tag.
+#   7. The mlflow Dockerfile base and the compose image tag name the same
+#      version, so a bump cannot leave the built image and its base disagreeing.
 # The script exits non-zero on the first failure. Every failure names what
 # failed, the fix, and what to check after the fix.
 #
@@ -40,7 +42,7 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 # --- Usage -------------------------------------------------------------------
 usage() {
-	sed -n '3,31p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+	sed -n '3,33p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 case "${1:-}" in
@@ -255,6 +257,35 @@ check_pinned_images() {
 	pass "every image reference in compose.yaml is pinned to an explicit tag."
 }
 
+# --- Check 7: the built image and its base name the same version -------------
+# The mlflow service builds a thin image from stack/mlflow/Dockerfile and also
+# carries an `image:` tag naming the pinned base, so the pinned reference stays
+# explicit in the compose file. That means the version is written twice, and the
+# two copies can disagree. When they do, `docker compose up -d` without --build
+# runs the base image rather than the built one, and the server exits at start
+# because the baked package is absent. The failure is remote from its cause, so
+# the two are asserted equal here instead.
+check_mlflow_base_matches() {
+	local dockerfile="$repo_root/stack/mlflow/Dockerfile" from_tag image_tag
+	if [ ! -f "$dockerfile" ]; then
+		pass "no mlflow image build is present, so there is no base tag to match."
+		return
+	fi
+	from_tag="$(grep -oE '^FROM[[:space:]]+ghcr\.io/mlflow/mlflow:[^[:space:]]+' "$dockerfile" | head -1 | sed 's/.*://')"
+	image_tag="$(grep -oE '^[[:space:]]*image:[[:space:]]*ghcr\.io/mlflow/mlflow:[^[:space:]]+' "$repo_root/compose.yaml" | head -1 | sed 's/.*://')"
+	if [ -z "$from_tag" ] || [ -z "$image_tag" ]; then
+		fail "the mlflow base tag could not be read from both stack/mlflow/Dockerfile and compose.yaml." \
+			"state the base as 'FROM ghcr.io/mlflow/mlflow:<tag>' in the Dockerfile and 'image: ghcr.io/mlflow/mlflow:<tag>' in compose.yaml." \
+			"re-run 'scripts/stack.verify.sh' and confirm both tags are readable."
+	fi
+	if [ "$from_tag" != "$image_tag" ]; then
+		fail "the mlflow base tag differs between the Dockerfile ($from_tag) and compose.yaml ($image_tag)." \
+			"set both to the same version; a bump changes stack/mlflow/Dockerfile and compose.yaml together, then rebuild with 'docker compose up -d --build'." \
+			"re-run 'scripts/stack.verify.sh' and confirm both name the same tag."
+	fi
+	pass "the mlflow Dockerfile base and the compose image tag both name $image_tag."
+}
+
 # --- Run every check in order ------------------------------------------------
 echo "verify: checking the stack on port ${edge_port}"
 check_single_published_port
@@ -263,4 +294,5 @@ check_datasources
 check_agent_experiments
 check_no_parent_references
 check_pinned_images
+check_mlflow_base_matches
 echo "verify: all checks passed"

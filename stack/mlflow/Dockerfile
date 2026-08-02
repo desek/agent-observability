@@ -12,7 +12,7 @@
 # (in particular NOT the client-side OTLP trace exporter, which is a client
 # dependency). The base tag stays pinned and explicit (never `latest`) so
 # reproducibility and the stack's no-`latest` convention hold.
-FROM ghcr.io/mlflow/mlflow:v3.14.0
+FROM ghcr.io/mlflow/mlflow:v3.15.0
 
 # Single pinned package: activates the server's /metrics Prometheus endpoint.
 # Pinned to an explicit version (never floating, never latest) per the stack's
