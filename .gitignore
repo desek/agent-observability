@@ -32,3 +32,6 @@ dist/
 # Redacted session transcripts. Local working data, never committed.
 .transcripts/
 .transcripts.gitleaks.json
+
+# Python bytecode cache.
+__pycache__/

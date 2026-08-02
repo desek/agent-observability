@@ -574,6 +574,9 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     parser.add_argument("--transcripts", default=None)
     parser.add_argument("--repo-root", default=None)
+    # Written for the MLflow step, which runs under a resolved client rather
+    # than in this stdlib-only process. See transcript.import.mlflow.py.
+    parser.add_argument("--summaries-out", default=None)
     args = parser.parse_args()
 
     repo_root = args.repo_root or os.getcwd()
@@ -629,6 +632,16 @@ def main():
                 )
         emit_trace(base_url, summary, repo_name, args.dry_run)
         written += 1
+
+    if args.summaries_out:
+        payload = []
+        for s in ordered:
+            row = dict(s)
+            row["cost"] = session_cost(s, pricing, set())
+            row["repo"] = repo_name
+            payload.append(row)
+        with open(args.summaries_out, "w") as fh:
+            json.dump(payload, fh)
 
     subagent_total = sum(len(s["subagents"]) for s in ordered)
     tool_total = sum(sum(s["tools"].values()) for s in ordered)

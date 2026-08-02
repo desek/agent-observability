@@ -334,11 +334,19 @@ nav_mlflow() {
 	# otherwise the click lands on the popover rather than on the trace.
 	ab find text "Got it" click >/dev/null 2>&1 || true
 	ab find text "Close guidance" click >/dev/null 2>&1 || true
+	# MLflow 3.15 opens an Assistant side panel on a first visit, which covers a
+	# third of the frame and can intercept the click that opens a trace. Close it
+	# before selecting anything.
+	ab find "button[aria-label='Close']" click >/dev/null 2>&1 || true
+	ab find text "MLflow Assistant" click >/dev/null 2>&1 || true
 	ab wait 1000 >/dev/null
-	# Open the seeded conversation by its request cell. The request text is one the
-	# seed writes, so it is a stable handle.
-	ab find text "Add a health check endpoint to the demo web store service." click >/dev/null 2>&1 \
-		|| ab find first "tbody a" click >/dev/null 2>&1 || true
+	# Open a conversation by clicking its trace-identifier link. The handle is the
+	# table's own first row rather than a particular request string, because the
+	# request text differs between seeded and imported data and a string handle
+	# silently degrades to capturing the list instead of a conversation.
+	ab find first "tbody a" click >/dev/null 2>&1 \
+		|| ab find text "Add a health check endpoint to the demo web store service." click >/dev/null 2>&1 \
+		|| true
 	ab wait --text "Inputs" >/dev/null 2>&1 || true
 	ab wait 2500 >/dev/null
 	# Switch to Details and Timeline, select the first assistant turn, then open its

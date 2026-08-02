@@ -130,11 +130,30 @@ worktree: "/Users/desek/Repo/desek/experiments/agent-observability"
 
 * **Supersedes:** nothing. Attempt 3 chose the span this importer reuses.
 
+### Attempt 5 — wipe, re-import clean, write MLflow conversations, and recapture
+
+* **Change:** `scripts/transcript.import.mlflow.py` writes the richest imported sessions into MLflow as conversation traces, with a turn span per exchange, a tool span beneath it, and a span per subagent. `scripts/transcript.import.sh` runs it after the metric, log, and trace write. `scripts/capture.screenshots.sh` no longer keys the MLflow navigation on a seed-specific request string. Volumes wiped, stack rebuilt, transcripts re-imported, both images recaptured.
+
+* **Reason:** Attempt 4 left the label set changed, so a re-import would have double counted until the volumes were wiped, and the conversation view still showed seeded data because the importer wrote no MLflow traces.
+
+* **Evidence:** the wipe was verified against the right target before it ran. This directory resolves to compose project `agent-observability` on port 24417; the other project on 24417's neighbour, `observability` on 24317, holds the real telemetry and was confirmed still running afterwards.
+
+  After the clean import the store holds one marker, `session-import`. Total tokens now reads 953,038,772 both with and without the model filter, which is the Attempt 4 defect fixed and the double count absent. 34 sessions, $177.79, 77 commits, 8 MLflow conversation traces.
+
+  `make ci` initially failed, correctly. The AGENTS.md verifier asserts that every metric family the documentation names exists in the store, and a Claude-Code-only import leaves the `pi_*` families absent. That is the check working rather than a fault in it, so the fix was to restore the families by seeding rather than to weaken the assertion. `make ci` then exits 0, read as an exit code rather than inferred from the last line.
+
+  A privacy incident occurred during this attempt and is recorded here because the cause is a property of the tooling rather than a one-off slip. Debugging the MLflow navigation outside the capture script's own flow, a bare screenshot captured the author's personal browser rather than the stack: agent-browser drives a persistent session that is the real browser, so a screenshot with no preceding navigation photographs whatever the active target is. The frame was deleted immediately and reached no commit; both committed images were confirmed to be the Grafana and MLflow interfaces. The capture script itself is protected only by ordering, because it navigates with `ab open` immediately before each frame, and that is a thinner margin than it looks for a script whose output is a public image. A recording is worse than a still, since it captures the whole duration rather than one moment. Pinning the capture to an isolated browser profile is the durable fix and is not done here.
+
+  The MLflow navigation was diagnosed but not fixed. Two overlays intercept the click, a first-visit guidance popover and the MLflow Assistant panel, and the correct handle is the snapshot-and-ref workflow rather than a CSS or text selector. The captured conversation image therefore still shows the trace list rather than an expanded conversation, which the author accepted for now.
+
+* **Supersedes:** nothing. Attempt 4 introduced the importer this completes.
+
 ## What Stands Now
 
 * The stack holds the real work: 34 imported sessions, 2815 tool calls, 57 subagents, cost computed from a pinned price table rather than invented.
 * Screenshot capture permits imported data only behind `CAPTURE_ALLOW_IMPORT=1`, which states that the prompt and response text in any captured image is real.
-* The MLflow conversation image still shows seeded data; the importer does not write MLflow traces yet.
+* The importer writes MLflow conversation traces, so all four stores hold imported data. The captured conversation image still shows the trace list rather than an expanded conversation: two overlays intercept the click and the fix is the snapshot-and-ref workflow, diagnosed but not applied.
+* Screenshot capture drives a persistent browser session that is the real browser, protected only by navigating immediately before each frame. Pinning it to an isolated profile is the durable fix and is outstanding.
 * The metric store accepts back-dated samples up to 72 hours. Verified at 6, 24, 48, and 71 hours, with 100 hours correctly refused.
 * The seeded dataset spans about an hour and a half, which is the widest span every backend accepts without changing a storage setting. Loki is the binding constraint at roughly two hours, anchored to a chunk edge. Tempo accepts no history at all, so seeded traces are written at the present moment.
 * Back-dated samples older than roughly twelve hours are not immediately queryable. They become visible after the block ships and the store synchronises, which is up to fifteen minutes on the current settings. Anything that seeds history and then reads or photographs it must account for that delay, or the settings that govern it must change.

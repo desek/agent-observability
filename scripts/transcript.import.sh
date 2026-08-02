@@ -69,4 +69,31 @@ resolve_edge_port() {
 EDGE_PORT="$(resolve_edge_port)"
 export EDGE_PORT
 
-exec python3 "$script_dir/transcript.import.py" --repo-root "$repo_root" "$@"
+# The metric, log, and trace write runs first and on stdlib alone, so it cannot
+# fail for want of a resolvable package. The conversation write follows, needs an
+# MLflow client, and is therefore reported as a skip rather than a failure when
+# uv is absent: the dashboard is already populated by that point.
+summaries="$(mktemp)"
+trap 'rm -f "$summaries"' EXIT
+
+python3 "$script_dir/transcript.import.py" --repo-root "$repo_root" --summaries-out "$summaries" "$@"
+
+case " $* " in
+	*" --dry-run "*)
+		echo "import: skipping the MLflow conversation write (dry run)"
+		exit 0
+		;;
+esac
+
+if ! command -v uv >/dev/null 2>&1; then
+	echo "import: SKIP the MLflow conversation write (uv is not installed, so a"
+	echo "        version-matched mlflow client cannot be resolved). Metrics, logs,"
+	echo "        and traces were written; only the conversation view stays empty."
+	exit 0
+fi
+
+edge="$(resolve_edge_port)"
+echo "import: writing MLflow conversation traces (resolves an mlflow 3.14 client)"
+MLFLOW_TRACKING_URI="http://127.0.0.1:${edge}/mlflow" \
+	uv run --python 3.12 --with mlflow==3.14.0 python \
+	"$script_dir/transcript.import.mlflow.py" "$summaries"
