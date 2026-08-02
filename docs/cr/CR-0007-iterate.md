@@ -40,8 +40,29 @@ worktree: "/Users/desek/Repo/desek/experiments/agent-observability"
 
   One residue: the probe series written during this attempt, named `iterate_*` and `iter_ok_*`, remain in the metric store. Neither Mimir nor this stack exposes a delete interface, which the seeding work already recorded, so they age out with retention rather than being removed.
 
+### Attempt 2 — decompose the README into a document set and make the front page a landing page
+
+* **Change:** `README.md` reduced from 522 lines to 100 and rewritten as a landing page: what the stack is, the screenshots and the walkthrough, what you get, a one-command start, a table that maps each question to the document that answers it, the boundaries, and the license. Seven new documents under `docs/` each hold one question: `install.md` (prerequisites, the agent-driven install, the manual install, the port change, the demo seed), `reading-data.md` (dashboard, query recipes, conversation view, how an agent reads them), `privacy.md` (the whole posture), `use-cases.md` (other senders, adoption elsewhere, the pi extension), `architecture.md` (diagram, address table, pinned versions, persistence), `troubleshooting.md` (the symptom table), and `contributing.md` (the check gate, the layout table, the capture procedure, pull requests). Three files that assert facts about the old shape moved with it: `scripts/readme.verify.sh` now verifies the whole document set rather than one file, `scripts/agents-md.verify.sh` now asserts the privacy link points at `docs/privacy.md`, and `AGENTS.md` now carries that link.
+
+* **Reason:** the front page had accreted into a manual. A reader who wanted one answer, how to start it, what is stored, why a panel is empty, read past every other answer to reach it, and a contributor adding a section had no rule saying where it belonged. One document per question gives both a rule: the front page is a map, and each answer has a single home.
+
+* **Evidence:** the decomposition holds because the checks were widened with it rather than left pointing at the old shape.
+
+  The verifier no longer trusts one file. `scripts/readme.verify.sh` now builds a document set of `README.md` plus every Markdown file directly under `docs/`, excluding the governance record and the image assets, and runs every fenced `bash` block in the set. It reports 9 blocks run and exited 0, up from 8 when the README held them all, because the troubleshooting document adds the outside-in check as a runnable command. Without this change the split would have silently dropped seven documents' worth of commands out of verification, which is the failure mode that matters here: the commands would still be printed and would no longer be proven.
+
+  Two checks were retargeted rather than deleted. The privacy check asserted `## Privacy` in the README and the two posture sentences nowhere else; it now asserts a Privacy heading in `docs/privacy.md`, a link to it from the front page, a link to it from `AGENTS.md`, and the posture sentences only in that file. The one-statement invariant is unchanged; only its home moved. `scripts/agents-md.verify.sh` asserted the string `README.md#privacy` in `AGENTS.md`, which the move would have made false, so it now asserts `docs/privacy.md`.
+
+  Two checks are new, and they exist because a split creates failures a single file cannot have. Every document under `docs/` must be linked from the front page, so a document cannot become an orphan the map does not show. Every relative link in the set must resolve to a path in the working tree; 48 links resolve.
+
+  `make ci` exits 0, with the exit code read rather than inferred from the last line of output. `shellcheck` is clean on both changed scripts. The negative test still fails as designed: `scripts/readme.verify.sh --selftest` plants a governance identifier and observes the check reject it.
+
+  One consequence worth stating. `scripts/stack.verify.sh` scans for governance identifiers only outside `docs`, so the seven new documents sit in the exempt directory. They are not unguarded: the governance check in `readme.verify.sh` now runs over each document in the set by name, which is what the per-document PASS lines report.
+
 ## What Stands Now
 
 * The metric store accepts back-dated samples up to 72 hours. Verified at 6, 24, 48, and 71 hours, with 100 hours correctly refused.
 * Back-dated samples older than roughly twelve hours are not immediately queryable. They become visible after the block ships and the store synchronises, which is up to fifteen minutes on the current settings. Anything that seeds history and then reads or photographs it must account for that delay, or the settings that govern it must change.
-* `make ci` passes.
+* The reader documentation is a set of eight files, not one. `README.md` is a 100-line landing page carrying the pictures, what you get, the one-command start, the map, and the boundaries. Seven documents under `docs/` each answer one question and are each the single home for that answer.
+* The privacy posture lives in `docs/privacy.md`. It is stated once there, linked from the front page and from `AGENTS.md`, and a second copy of either posture sentence anywhere else fails a check.
+* `scripts/readme.verify.sh` verifies the document set, not the README alone: every fenced `bash` block in the set runs, no document carries a governance identifier, every document is linked from the front page, and every relative link resolves.
+* `make ci` passes, exit code 0.

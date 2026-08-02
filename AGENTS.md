@@ -168,7 +168,7 @@ reveals the stream's full label set, which includes `user_email` and the other
 identity fields `user_id`, `user_account_id`, `user_account_uuid`, and
 `organization_id`. The full privacy posture, what is stored, where, what is off
 by default, and how to delete it, is stated once in the
-[README privacy section](README.md#privacy); the rules below are the agent-facing
+[privacy document](docs/privacy.md); the rules below are the agent-facing
 subset.
 
 * Never place identity fields or conversation content into a shared or public

@@ -2,7 +2,7 @@
 #
 # agents-md.verify.sh
 #
-# @agents-index Proves AGENTS.md true against the running stack: every fenced command runs, every metric name it states exists in the store, its addresses use the port variable, the example .mcp.json holds no secret, and AGENTS.md links to the README privacy section rather than restating the posture.
+# @agents-index Proves AGENTS.md true against the running stack: every fenced command runs, every metric name it states exists in the store, its addresses use the port variable, the example .mcp.json holds no secret, and AGENTS.md links to the privacy document rather than restating the posture.
 #
 # Purpose: keep the example instruction file honest by making every claim in it
 # executable. A stale AGENTS.md makes an agent confidently wrong, so this script
@@ -12,9 +12,9 @@
 #   3. Every backend address in AGENTS.md is expressed through the port variable,
 #      not a literal host:port.
 #   4. The example .mcp.json holds no token, secret, password, or absolute path.
-#   5. AGENTS.md links to the README privacy section (README.md#privacy) rather
+#   5. AGENTS.md links to the privacy document (docs/privacy.md) rather
 #      than restating the full posture, so the posture is stated once. The full
-#      privacy statement lives in the README; a restatement here would drift.
+#      privacy statement lives in that document; a restatement here would drift.
 # It exits non-zero on the first failure. Every failure names what failed, the
 # fix, and what to check after.
 #
@@ -197,17 +197,17 @@ check_no_secret() {
 }
 
 # --- Check 5: privacy is linked, not restated --------------------------------
-# The full privacy posture is stated once, in the README. AGENTS.md carries the
-# agent-facing rules and links to the README for the posture. This asserts the
-# link is present, so the posture is stated once and a reader is sent to the one
-# authoritative copy rather than a restatement that can drift.
+# The full privacy posture is stated once, in docs/privacy.md. AGENTS.md carries
+# the agent-facing rules and links to that document for the posture. This asserts
+# the link is present, so the posture is stated once and a reader is sent to the
+# one authoritative copy rather than a restatement that can drift.
 check_privacy_link() {
-	if ! grep -qF 'README.md#privacy' "$AGENTS_MD"; then
-		fail "$AGENTS_MD does not link to the README privacy section (README.md#privacy)." \
-			"add a link to README.md#privacy in AGENTS.md instead of restating the full posture; the posture is stated once, in the README." \
-			"re-run 'scripts/agents-md.verify.sh' once AGENTS.md links to the README privacy section."
+	if ! grep -qF 'docs/privacy.md' "$AGENTS_MD"; then
+		fail "$AGENTS_MD does not link to the privacy document (docs/privacy.md)." \
+			"add a link to docs/privacy.md in AGENTS.md instead of restating the full posture; the posture is stated once, in that document." \
+			"re-run 'scripts/agents-md.verify.sh' once AGENTS.md links to the privacy document."
 	fi
-	pass "AGENTS.md links to the README privacy section rather than restating the posture."
+	pass "AGENTS.md links to the privacy document rather than restating the posture."
 }
 
 run_every_command
