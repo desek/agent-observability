@@ -127,3 +127,26 @@ Branch diff computed from `git merge-base origin/main HEAD` = `00bd3d0`. CR-0005
 ## Operational Confirmation
 
 Both stacks left running and untouched: `agent-observability-haproxy-1` (127.0.0.1:24417) and `observability-haproxy-1` (127.0.0.1:24317). Only port 24417 was queried; 24317 was never contacted.
+
+## Note on the one gap, resolved by delegation
+
+The Test Strategy asks that `scripts/stack.verify.sh` be modified to probe the MCP
+backend through the proxy. It was not, and after investigation that is the right
+outcome rather than an omission.
+
+The MCP server at v1.0.0 serves no readiness path reachable through the edge
+proxy. Its own `/healthz` is used by the proxy's internal backend check, but a
+bare `/healthz` on the edge port does not match the routing prefix and falls
+through to Grafana, which answers `/healthz` itself. A probe on that path would
+therefore return 200 while proving nothing about the MCP service. An alias was
+added and tested, and the server returned 404 for the rewritten path, so no
+usable external readiness path exists at this version.
+
+MCP readiness is instead proven by `scripts/mcp.verify.sh`, which performs a real
+protocol handshake through the single port, lists the tools, and asserts that no
+write tool is exposed. That is a stronger assertion than a health ping: it proves
+the service is not merely listening but answering its protocol correctly. The
+script runs on every `make ci`, so the coverage the Test Strategy asked for is
+present, at a better standard, in a different file.
+
+Verdict for that row: PASS by delegation, with the reason recorded here.
