@@ -1,0 +1,109 @@
+check-selftest: asserting a failing check exits non-zero
+check-selftest: PASS
+check-compose: validating compose.yaml
+check-compose: PASS
+check-haproxy: validating stack/haproxy/haproxy.cfg in haproxy:3.4.3-trixie on agent-observability_otel
+[NOTICE]   (1) : haproxy version is 3.4.3-80ea565fd
+[NOTICE]   (1) : path to executable is /usr/local/sbin/haproxy
+[WARNING]  (1) : log format ignored for frontend 'prometheus_exporter' since it has no log address.
+Warnings were found.
+check-haproxy: PASS
+lint-scripts: shellcheck scripts/agent.verify.sh scripts/agents-md.verify.sh scripts/capture.screenshots.sh scripts/capture.walkthrough.sh scripts/dashboard.verify.sh scripts/deeplink.sh scripts/demo.seed.sh scripts/mcp.verify.sh scripts/mlflow.autolog.claude.sh scripts/mlflow.autolog.hook.sh scripts/mlflow.provision.sh scripts/mlflow.tracing.pi.sh scripts/mlflow.tracing.verify.sh scripts/mlflow.verify.sh scripts/pi-package.verify.sh scripts/readme.verify.sh scripts/stack.up.sh scripts/stack.verify.sh scripts/transcript.import.sh scripts/transcript.redact.sh
+lint-scripts: PASS
+verify: running scripts/agent.verify.sh
+agent-verify: checking agent signals on port 24417
+agent-verify: PASS agent 'claude-code' has a metric, a log, and a trace within the last 3600s, seen through port 24417.
+agent-verify: SKIP agent 'pi' has a partial recent window (present: metric trace; absent: log); the signals age out independently, so drive a turn to assert.
+  To assert all three from one fresh turn, run 'scripts/agent.verify.sh pi --drive'.
+verify: running scripts/agents-md.verify.sh
+agents-md-verify: PASS all 6 command blocks in AGENTS.md ran and exited 0.
+agents-md-verify: PASS every metric name in AGENTS.md exists in the store (7 names checked).
+agents-md-verify: PASS every backend address in AGENTS.md is expressed through the port variable.
+agents-md-verify: PASS the example .mcp.json holds no token, secret, password, or absolute path.
+agents-md-verify: PASS AGENTS.md links to the privacy document rather than restating the posture.
+agents-md-verify: PASS (AGENTS.md is executable and true against the stack on port 24417)
+verify: running scripts/dashboard.verify.sh
+verify: checking the dashboard on port 24417
+verify: PASS the dashboard is provisioned and present by uid 'agent-observability'.
+verify: PASS the dashboard is provisioned read-only, so the committed JSON stays the source of truth.
+verify: PASS panel 'Total cost' executes and returns data (1 series).
+verify: PASS panel 'Total tokens' executes and returns data (1 series).
+verify: PASS panel 'Sessions started' executes and returns data (1 series).
+verify: PASS panel 'Active agent time' executes and returns data (1 series).
+verify: PASS panel 'Cost rate by model' executes and returns data (5 series).
+verify: PASS panel 'Token rate by type' executes and returns data (4 series).
+verify: PASS panel 'Cost by repository' executes and returns data (5 series).
+verify: PASS panel 'Lines of code' executes and returns an explicit empty result (family populates only after the agent acts, or the agent is not installed).
+verify: PASS panel 'Edit tool decisions' executes and returns an explicit empty result (family populates only after the agent acts, or the agent is not installed).
+verify: PASS panel 'Commits created' executes and returns an explicit empty result (family populates only after the agent acts, or the agent is not installed).
+verify: PASS panel 'Pull requests created' executes and returns an explicit empty result (family populates only after the agent acts, or the agent is not installed).
+verify: PASS panel 'Session starts' executes and returns data (1 series).
+verify: PASS panel 'Agent conversation stream' executes and returns data (5 streams).
+verify: PASS panel 'Tool events' executes and returns an explicit empty result (no tool event was logged in this window).
+verify: PASS panel 'Recent agent traces' executes and returns an explicit empty result (no agent has exported spans to Tempo on this stack).
+verify: PASS every panel target executed against its datasource with no query error.
+verify: PASS no user identity label appears in the dashboard JSON.
+verify: PASS every metric target aggregates with last_over_time and none use rate or increase.
+verify: PASS the agent, repository, branch, model, and three datasource variables are all present.
+verify: PASS every data panel carries a description and a no-data message.
+verify: PASS the dashboard JSON carries no absolute path and no volatile identifier.
+verify: all checks passed
+verify: running scripts/mcp.verify.sh
+mcp-verify: PASS the MCP endpoint answered the handshake through port 24417.
+mcp-verify: PASS tools/list returned 22 tools.
+mcp-verify: PASS all six read-only categories present (search, datasource, dashboard, prometheus, loki, navigation).
+mcp-verify: PASS no writing tool is exposed (read-only default holds).
+mcp-verify: PASS the MCP service publishes no host port; only the edge proxy is reachable.
+mcp-verify: PASS (MCP server reachable, read-only, and internal on port 24417)
+verify: running scripts/mlflow.tracing.verify.sh
+tracing-verify: checking experiment 'claude-code' at http://127.0.0.1:24417/mlflow
+tracing-verify: PASS trace 'tr-5b85d82be90e4c24f238d1b7a2484a07' in experiment 'claude-code' carries the user turn and the assistant turn.
+verify: running scripts/mlflow.verify.sh
+mlflow-verify: round trip against http://127.0.0.1:24417/mlflow
+mlflow-verify: PASS write-then-read round trip through port 24417 (param and metric match, artifact round-trips through the served store, throwaway experiment and artifact removed).
+verify: running scripts/pi-package.verify.sh
+pi-package.verify: === pi-opentelemetry ===
+pi-package.verify: packing /Users/desek/Repo/desek/experiments/agent-observability/packages/pi-opentelemetry
+pi-package.verify: PASS no test file in the @desek/pi-opentelemetry tarball
+pi-package.verify: PASS no lockfile in the @desek/pi-opentelemetry tarball
+pi-package.verify: PASS the @desek/pi-opentelemetry manifest, README, LICENSE, and entry point are present
+pi-package.verify: loading the @desek/pi-opentelemetry manifest entry through jiti@2.7.0
+pi-package.verify: PASS @desek/pi-opentelemetry manifest entry resolves on disk
+pi-package.verify: PASS loaded ./src/index.ts -> function factory
+pi-package.verify: PASS @desek/pi-opentelemetry
+pi-package.verify: === pi-mlflow-tracing ===
+pi-package.verify: packing /Users/desek/Repo/desek/experiments/agent-observability/packages/pi-mlflow-tracing
+pi-package.verify: PASS no test file in the @desek/pi-mlflow-tracing tarball
+pi-package.verify: PASS no lockfile in the @desek/pi-mlflow-tracing tarball
+pi-package.verify: PASS the @desek/pi-mlflow-tracing manifest, README, LICENSE, and entry point are present
+pi-package.verify: loading the @desek/pi-mlflow-tracing manifest entry through jiti@2.7.0
+pi-package.verify: PASS @desek/pi-mlflow-tracing manifest entry resolves on disk
+pi-package.verify: PASS loaded ./src/index.ts -> function factory
+pi-package.verify: PASS @desek/pi-mlflow-tracing
+pi-package.verify: PASS all checks for all packages
+verify: running scripts/readme.verify.sh
+readme-verify: PASS all 9 bash command blocks in the document set ran and exited 0.
+readme-verify: PASS no governance identifier appears in README.md.
+readme-verify: PASS no governance identifier appears in docs/architecture.md.
+readme-verify: PASS no governance identifier appears in docs/contributing.md.
+readme-verify: PASS no governance identifier appears in docs/install.md.
+readme-verify: PASS no governance identifier appears in docs/privacy.md.
+readme-verify: PASS no governance identifier appears in docs/reading-data.md.
+readme-verify: PASS no governance identifier appears in docs/troubleshooting.md.
+readme-verify: PASS no governance identifier appears in docs/use-cases.md.
+readme-verify: PASS the privacy posture is stated once in docs/privacy.md and linked from elsewhere.
+readme-verify: PASS both screenshots are referenced in README.md with non-empty alternative text.
+readme-verify: PASS every document is linked from the front page and all 49 relative links resolve.
+readme-verify: PASS (the document set is executable and true against the stack on port 24417)
+verify: running scripts/stack.verify.sh
+verify: checking the stack on port 24417
+verify: PASS one published host port on 'agent-observability-haproxy-1', bound to 127.0.0.1.
+verify: PASS all six endpoints answer 200 through port 24417.
+verify: PASS the mimir, loki, and tempo datasources exist and report healthy, and the provisioned dashboard is present.
+verify: PASS both agent experiments (claude-code and pi) exist in MLflow.
+verify: PASS no parent references and no governance identifiers outside docs.
+verify: PASS every image reference in compose.yaml is pinned to an explicit tag.
+verify: PASS the mlflow Dockerfile base and the compose image tag both name v3.15.0.
+verify: all checks passed
+verify: PASS
+ci: all checks complete

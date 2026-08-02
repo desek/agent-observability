@@ -1,0 +1,10 @@
+=== CR-0008 FR18/AC-14 --drive-pi run (after verifier --approve fix) — 2026-08-02T22:58:19Z ===
+EDGE_PORT=24417  pi=0.80.3  (dev-dep pin ^0.80.3)
+
+tracing-verify: checking experiment 'pi' at http://127.0.0.1:24417/mlflow
+tracing-verify: installing the local pi extension project-locally in /var/folders/71/d6m37l510qg2fkn91tgdvnfm0000gn/T//mlflow-tracing-pi.FO0ghJ
+tracing-verify: enabling pi tracing in scratch directory /var/folders/71/d6m37l510qg2fkn91tgdvnfm0000gn/T//mlflow-tracing-pi.FO0ghJ
+tracing-verify: driving one pi turn (this reaches the model and may take a moment)
+tracing-verify: PASS trace 'tr-2389e27eeccc392e4ad1b43cb179a3ef' in experiment 'pi' carries the user turn and the assistant turn.
+
+=== exit status: 0 ===

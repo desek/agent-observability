@@ -233,9 +233,13 @@ drive_one_pi_turn() {
 	# Remove the scratch directory on return, whatever the outcome.
 	trap 'rm -rf "$scratch"' RETURN
 	echo "tracing-verify: installing the local pi extension project-locally in ${scratch}"
-	( cd "$scratch" && pi install "$pkg_dir" -l >/dev/null 2>&1 ) \
+	# --approve trusts the project-local files so pi will actually load the extension:
+	# a project-local (.pi/settings.json) package is untrusted by default, and pi
+	# skips an untrusted project-local extension without prompting in headless mode,
+	# so without this the factory never runs and no trace is ever produced.
+	( cd "$scratch" && pi install "$pkg_dir" -l --approve >/dev/null 2>&1 ) \
 		|| fail "installing the local pi extension into the scratch project failed." \
-			"run 'cd ${scratch} && pi install ${pkg_dir} -l' by hand and read its failure message." \
+			"run 'cd ${scratch} && pi install ${pkg_dir} -l --approve' by hand and read its failure message." \
 			"fix the cause it names, then re-run this script with '--drive-pi'."
 	echo "tracing-verify: enabling pi tracing in scratch directory ${scratch}"
 	EDGE_PORT="$edge_port" "$script_dir/mlflow.tracing.pi.sh" --yes -d "$scratch" >/dev/null \
@@ -245,14 +249,17 @@ drive_one_pi_turn() {
 	echo "tracing-verify: driving one pi turn (this reaches the model and may take a moment)"
 	# Source the switch file so PI_MLFLOW_ENABLE and the destination reach pi's
 	# environment, then run one headless turn from the scratch directory so pi
-	# loads the project-local extension.
+	# loads the project-local extension. --approve trusts the project-local files
+	# for this run too: headless 'pi -p' silently skips an untrusted project-local
+	# extension, so the flag is what makes the extension's factory actually run and
+	# the trace actually export.
 	# shellcheck source=/dev/null
 	( cd "$scratch" \
 		&& set -a && . "$scratch/.pi/mlflow-tracing.env" && set +a \
 		&& printf 'Print the word mlflowtrace and nothing else.' \
-		| pi -p >/dev/null 2>&1 ) \
+		| pi -p --approve >/dev/null 2>&1 ) \
 		|| fail "the pi turn did not complete in the scratch directory." \
-			"run a 'pi -p' turn by hand and confirm the CLI is authenticated." \
+			"run a 'pi -p --approve' turn by hand and confirm the CLI is authenticated." \
 			"once a turn completes, re-run this script with '--drive-pi'."
 	# The extension exports the trace at agent end; give it a moment to land.
 	sleep 3

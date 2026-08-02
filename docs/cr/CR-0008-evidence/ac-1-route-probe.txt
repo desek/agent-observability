@@ -1,0 +1,17 @@
+=== CR-0008 AC-1 live route probe — 2026-08-02T22:47:54Z ===
+Edge base: http://localhost:24417    pi experiment id: 2
+
+--- Probe A: routed MLflow ingest WITH experiment header -> expect accept (2xx) ---
+POST /mlflow-otlp/v1/traces  -> HTTP 200
+  body: 
+
+--- Probe B: routed MLflow ingest WITHOUT experiment header -> expect 400 (proves it reached MLflow, not 404, not Alloy) ---
+POST /mlflow-otlp/v1/traces (no hdr) -> HTTP 422
+  body: {"detail":[{"type":"missing","loc":["header","x-mlflow-experiment-id"],"msg":"Field required","input":null}]}
+
+--- Probe C: under the /mlflow static prefix -> expect 404 (endpoint is served OUTSIDE the prefix) ---
+POST /mlflow/v1/traces -> HTTP 404
+
+--- Probe D: unprefixed /v1/traces (NO experiment header) -> expect 2xx from Alloy (MLflow would 400 on the missing header, so a 2xx proves Alloy still owns this path) ---
+POST /v1/traces -> HTTP 200
+  body: {"partialSuccess":{}}

@@ -7,17 +7,28 @@ the implementation commits `cff797e`, `996f2c1`, `1aa4620`, `bde0ed9`, `02c1c6d`
 
 ## Summary
 
-Requirements: 26/28 | Acceptance Criteria: 15/19 | Tests: 25/25 unit + `make ci` green | Gaps: 6 (all PARTIAL, 0 FAIL, 0 GAP)
+Requirements: 28/28 | Acceptance Criteria: 19/19 | Tests: 25/25 unit + `make ci` green | Gaps: 0 (all six former PARTIALs closed with executed evidence on 2026-08-03)
 
 The implementation is broad and honest: every unit-testable requirement is backed
 by a passing assertion, and the package's own tests plus `make ci` pass. The six
-PARTIAL items all share one root cause: the pi end-to-end path (the enable script's
+PARTIAL items shared one root cause: the pi end-to-end path (the enable script's
 disclosure and reversal, the `--drive-pi` verifier mode, and the new proxy route's
-runtime acceptance) is **written and lints clean but was never executed against a
-real pi turn or a live route probe**. The phase-5 commit body (`02c1c6d`) states
-this outright: the enable path "does not run against any real configuration; it was
-smoke-tested only against throwaway scratch dirs," and `--drive-pi` is "Never used
-by ci." No FAILs: code with diff evidence exists for every requirement.
+runtime acceptance) was written and lint-clean but had never been executed against a
+real pi turn or a live route probe.
+
+**Gap-fixer update (2026-08-03).** All six were executed against the live stack and
+a real pi turn and are now closed; the captured evidence lives under
+`docs/cr/CR-0008-evidence/`. Closing FR18/AC-14 additionally surfaced and fixed a
+real defect in the verifier: `--drive-pi` installed the extension project-locally
+but drove the turn without trusting the project-local files, so headless `pi -p`
+silently skipped the untrusted extension and no trace was ever produced (the factory
+never ran). The verifier now passes `--approve` on both the install and the run.
+Root cause verified by isolation: the same extension loaded directly with `pi -p -e
+src/index.ts` produced a correct trace, and a standalone Node harness exercising
+config -> experiment-resolve -> OTLP export landed a readable trace, so the export
+code was already correct against the pinned `pi@^0.80.3`; only the verifier's trust
+handling was wrong. See "Execution Evidence" below. No FAILs at any point: code with
+diff evidence existed for every requirement.
 
 ## Requirement Verification
 
@@ -39,8 +50,8 @@ by ci." No FAILs: code with diff evidence exists for every requirement.
 | FR14 | This change publishes nothing; registry only via release automation | PASS | No workflow modified in this diff (`git diff --name-only` has no `.github/`); `publish.yml` pre-exists (CR-0003 `00bd3d0`), tag-triggered, working-dir pinned to `pi-opentelemetry`; test `manifest is publishable` asserts publish access with no trigger |
 | FR15 | Proxy route on a distinct prefix, rewritten away; unprefixed still to Alloy | PASS | `stack/haproxy/haproxy.cfg:93,106,180-185` (new `is_mlflow_otlp` ACL, `mlflow_otlp` backend with `replace-path`); Alloy `is_otlp_http` routing untouched in diff; `check-haproxy` PASS validates config |
 | FR16 | Silent, no retry, no error output when server unreachable | PASS | `src/mlflow.exporter.ts:244-247`; `src/mlflow.experiment.ts:104-123`; tests `silent when the server is absent`, `silent-eligible when the server is unreachable` |
-| FR17 | One script enables/disables, discloses before recording, reverses on disable | PARTIAL | `scripts/mlflow.tracing.pi.sh:310-333` (disclosure), `:251-276` (disable). Script lints clean (`lint-scripts` in `make ci`). No test asserts the disclosure or reversal behavior; the only executing path (`--drive-pi`, manual) was never run — commit `02c1c6d` records "smoke-tested only against throwaway scratch dirs" |
-| FR18 | Verifier gains a mode driving one real pi turn, asserting both turns | PARTIAL | `scripts/mlflow.tracing.verify.sh:208-259` (`drive_one_pi_turn`). Mode is written and wired; commit `02c1c6d` states it is "Never used by ci"; no execution evidence a real pi turn produced a trace |
+| FR17 | One script enables/disables, discloses before recording, reverses on disable | FIXED | `scripts/mlflow.tracing.pi.sh:310-333` (disclosure), `:251-276` (disable). Executed 2026-08-03 against an isolated scratch dir (never the user's real pi config): the disclosure prints before any write; declining leaves the switch file absent; confirming writes `PI_MLFLOW_ENABLE=1`; `--disable` prints the reversal and removes the switch file. Evidence: `docs/cr/CR-0008-evidence/fr17-ac12-ac13-enable-disable.txt` |
+| FR18 | Verifier gains a mode driving one real pi turn, asserting both turns | FIXED | `scripts/mlflow.tracing.verify.sh:208-263` (`drive_one_pi_turn`). Gap-fixer executed `scripts/mlflow.tracing.verify.sh --drive-pi` against the live stack and a real `pi@0.80.3` turn: `PASS trace 'tr-2389e27e…' in experiment 'pi' carries the user turn and the assistant turn`, exit 0. This required a fix to the verifier (it drove the headless turn without `--approve`, so pi silently skipped the untrusted project-local extension and produced no trace); the run and turn now pass `--approve`. Evidence: `docs/cr/CR-0008-evidence/fr18-ac14-drive-pi.txt` |
 | FR19 | Every failure names what failed, the fixes, what to check | PASS | `src/config.env.ts:199-211`; `src/mlflow.experiment.ts:62-73`; script `fail()` messages; tests assert message content (malformed endpoint, unknown name) |
 | FR20 | README for an outside reader + a changelog | PASS | `packages/pi-mlflow-tracing/README.md` (records/enable/disable/off-by-default); `CHANGELOG.md`; test `version agrees with changelog`. Note: changelog is a manual seed; automated production awaits CR-0009 |
 | FR21 | User docs: what pi tracing records, where, off by default, point elsewhere, how to delete | PASS | `docs/privacy.md:40-79`; `docs/install.md:122-130`; `docs/reading-data.md:69-76`; `readme.verify` PASS |
@@ -56,7 +67,7 @@ by ci." No FAILs: code with diff evidence exists for every requirement.
 
 | AC # | Description | Status | Evidence |
 |------|-------------|--------|----------|
-| AC-1 | Ingest reachable through the single port; Alloy still gets unprefixed paths | PARTIAL | Route added (`haproxy.cfg:93,106,180-185`), config validates (`check-haproxy` PASS). No functional probe posts to `/mlflow-otlp/v1/traces`, and no test confirms unprefixed `/v1/traces` still reaches Alloy at runtime — only config-syntax validation, as the CR's own coverage note admits |
+| AC-1 | Ingest reachable through the single port; Alloy still gets unprefixed paths | FIXED | Route added (`haproxy.cfg:93,106,180-185`), config validates (`check-haproxy` PASS). Live route probe run 2026-08-03: POST of a real OTLP trace export to `/mlflow-otlp/v1/traces` with the experiment header returned **200** (MLflow accepted it); the same POST without the header returned **422** naming the missing `x-mlflow-experiment-id` (proves it reached MLflow, not a 404 and not Alloy); a POST under the `/mlflow` static prefix returned **404** (endpoint served outside the prefix, as the CR states); and a POST to the unprefixed `/v1/traces` returned **200 `{"partialSuccess":{}}`** — Alloy's OTLP-HTTP signature, which MLflow would have 422'd, so Alloy still owns that path. Additionally the FR18/AC-14 `--drive-pi` run exercised the route end to end. Evidence: `docs/cr/CR-0008-evidence/ac-1-route-probe.txt` |
 | AC-2 | Unconfigured install costs nothing | PASS | test `registers nothing when disabled` |
 | AC-3 | One loop becomes one readable conversation | PASS | tests `one agent loop makes one trace`, `prompt and response land in the reserved attributes`, `token usage lands on the turn span`, `a tool call parents to its turn` |
 | AC-4 | Traces of one session group together | PASS | test `the root span carries the session id` |
@@ -67,9 +78,9 @@ by ci." No FAILs: code with diff evidence exists for every requirement.
 | AC-9 | Malformed endpoint fails loudly | PASS | test `a malformed endpoint is rejected` |
 | AC-10 | This change publishes nothing | PASS | No publish workflow in this diff; `publish.yml` pre-exists and is tag-triggered; test `manifest is publishable` |
 | AC-11 | Absent server is silent | PASS | tests `silent when the server is absent`, `silent-eligible when the server is unreachable` |
-| AC-12 | User told before anything is recorded | PARTIAL | `scripts/mlflow.tracing.pi.sh:310-343` (disclosure before write, confirm gate). No test; not executed end-to-end |
-| AC-13 | Disabling reverses the change | PARTIAL | `scripts/mlflow.tracing.pi.sh:251-276` (removes switch file + empty `.pi`). No test; not executed end-to-end |
-| AC-14 | The pi path is proven end to end | PARTIAL | `scripts/mlflow.tracing.verify.sh:208-259` (`--drive-pi`) is written and wired but **was never run against a real pi turn**; CI runs assert-only against `claude-code` (observed in `make ci` output). No artifact, log, or scenario shows a real pi turn landing a trace in the `pi` experiment |
+| AC-12 | User told before anything is recorded | FIXED | `scripts/mlflow.tracing.pi.sh:310-343` (disclosure before write, confirm gate). Executed 2026-08-03 in an isolated scratch dir: the disclosure names the directory, the file, the switch, the experiment, both addresses, and states it stores every prompt, response, tool input, and tool result; answering anything but "yes" prints "cancelled; no change was made" and leaves the switch file absent (no change until confirmation). Evidence: `docs/cr/CR-0008-evidence/fr17-ac12-ac13-enable-disable.txt` |
+| AC-13 | Disabling reverses the change | FIXED | `scripts/mlflow.tracing.pi.sh:251-276`. Executed 2026-08-03: `--disable` removed the switch file (absent afterwards), and a following real pi turn in the now-disabled scratch (extension installed and loaded via `--approve`, but no switch set) produced **no new trace** (experiment count unchanged) while the turn completed normally. Evidence: `docs/cr/CR-0008-evidence/fr17-ac12-ac13-enable-disable.txt` |
+| AC-14 | The pi path is proven end to end | FIXED | `scripts/mlflow.tracing.verify.sh --drive-pi` run against the live stack and a real `pi@0.80.3` turn: `PASS trace 'tr-2389e27e…' in experiment 'pi' carries the user turn and the assistant turn`, exit 0. Reaching this required the verifier `--approve` fix described under FR18. Evidence: `docs/cr/CR-0008-evidence/fr18-ac14-drive-pi.txt` |
 | AC-15 | A tracing fault never breaks a turn | PASS | test `a handler error never propagates`; exporter silent-on-failure tests |
 | AC-16 | Last conversation of a session is not lost | PASS | test `flushes pending exports on shutdown` |
 | AC-17 | Content does not outlive the export | PASS | test `content is released after export` |
@@ -105,7 +116,7 @@ by ci." No FAILs: code with diff evidence exists for every requirement.
 | src/package.manifest.test.ts | manifest is publishable | Yes | Yes | Yes |
 | src/package.manifest.test.ts | manifest entry point exists on disk and the files list would ship it | No (extra) | Yes | Guards silent no-op |
 | src/package.manifest.test.ts | version agrees with changelog | No (extra) | Yes | Strengthens FR20 |
-| scripts/mlflow.tracing.verify.sh | drive mode (pi) | Yes (Tests to Modify) | Yes (`--drive-pi`) | Written, not executed end-to-end |
+| scripts/mlflow.tracing.verify.sh | drive mode (pi) | Yes (Tests to Modify) | Yes (`--drive-pi`) | Executed end-to-end 2026-08-03: PASS against a real pi turn after the `--approve` fix |
 | scripts/pi-package.verify.sh | package checks (both packages) | Yes (Tests to Modify) | Yes | Yes; both packages pass in `make ci` |
 
 All 25 package unit tests pass. `make ci` is green (compose, haproxy config, script lint,
@@ -146,35 +157,62 @@ exactly what FR14/AC-10 require.
 
 ## Gaps
 
-All six gaps are PARTIAL. None is a FAIL: every one has real, correct code in the diff;
-what is missing is executed proof of the runtime behavior.
+All six former PARTIAL gaps are closed as of 2026-08-03. None was ever a FAIL: every one
+had real, correct code in the diff; what was missing was executed proof of the runtime
+behavior. That proof now exists (see "Execution Evidence"), and closing the pi drive
+gap also fixed one real verifier defect.
 
-1. **FR17 / AC-12 / AC-13 (enable, disclose, disable path).** `scripts/mlflow.tracing.pi.sh`
-   implements the disclosure, the confirmation gate, and the full reversal, and it lints
-   clean. But no test asserts the disclosed text or the reversal, and the only executing
-   path (`--drive-pi`) was never run. Commit `02c1c6d` records it was "smoke-tested only
-   against throwaway scratch dirs."
-   - Suggested minimal fix: run `scripts/mlflow.tracing.pi.sh` (enable then `--disable`)
-     against a scratch dir with the stack up and capture the disclosure output and the
-     switch-file create/remove, or add a shell-level test asserting the disclosure lines
-     and that `--disable` removes the switch file. Record the captured output in the CR.
+1. **FR17 / AC-12 / AC-13 (enable, disclose, disable path).** CLOSED. `scripts/mlflow.tracing.pi.sh`
+   was executed against an isolated scratch dir (not the user's real pi config, which the
+   agent guide reserves for the user's own consent). The disclosure prints before any write
+   and names the directory, file, switch, experiment, and both addresses; declining leaves
+   no switch file; confirming writes it; `--disable` removes it; and a real pi turn after
+   `--disable` produced no new trace. Evidence:
+   `docs/cr/CR-0008-evidence/fr17-ac12-ac13-enable-disable.txt`.
 
-2. **FR18 / AC-14 (pi path proven end to end).** The `--drive-pi` verifier mode is fully
-   written and wired but was never executed against a real pi turn; CI runs assert-only
-   against the `claude-code` experiment (confirmed in the live `make ci` output). There is
-   no artifact, log, or scenario showing a real pi turn landing a trace in the `pi`
-   experiment.
-   - Suggested minimal fix: with the stack running and `pi` authenticated, run
-     `scripts/mlflow.tracing.verify.sh --drive-pi` once and capture its `PASS` line
-     (trace id, both turns present) into the CR's verification record. This is the
-     single command the CR names as AC-14's verification path; it exists but has not
-     been run.
+2. **FR18 / AC-14 (pi path proven end to end).** CLOSED, with a fix. Executing
+   `scripts/mlflow.tracing.verify.sh --drive-pi` first revealed a real defect: the verifier
+   installed the extension project-locally and drove the turn without `--approve`, so
+   headless `pi -p` silently skipped the untrusted project-local extension and the factory
+   never ran (no trace). The extension itself was proven correct by isolation (direct
+   `pi -p -e src/index.ts` load produced a trace; a standalone Node harness exercising
+   config -> resolve -> OTLP export landed a readable trace). The verifier now passes
+   `--approve` on both the install and the run, and the drive mode PASSes end to end against
+   a real `pi@0.80.3` turn. Evidence: `docs/cr/CR-0008-evidence/fr18-ac14-drive-pi.txt`;
+   fix in `scripts/mlflow.tracing.verify.sh` (`drive_one_pi_turn`).
 
-3. **AC-1 (route reachable; Alloy unaffected).** The `/mlflow-otlp/` route is added and the
-   proxy config validates (`haproxy -c`), but nothing posts an OTLP trace export to
-   `/mlflow-otlp/v1/traces` to confirm the server accepts it, and nothing confirms the
-   unprefixed `/v1/traces` still reaches Alloy at runtime.
-   - Suggested minimal fix: add a probe (or extend `stack.verify.sh`) that POSTs a minimal
-     OTLP body to `/mlflow-otlp/v1/traces` and asserts a non-404 accept, and asserts a POST
-     to `/v1/traces` still lands at Alloy. The `--drive-pi` run in gap 2 would also
-     exercise the route end to end and largely retire this gap.
+3. **AC-1 (route reachable; Alloy unaffected).** CLOSED. A live route probe posted a real
+   OTLP export to `/mlflow-otlp/v1/traces` (200 accept with the experiment header; 422
+   naming the missing header without it, proving MLflow was reached; 404 under the `/mlflow`
+   static prefix), and a POST to the unprefixed `/v1/traces` returned Alloy's OTLP-HTTP
+   `{"partialSuccess":{}}` 200, proving Alloy still owns that path. The `--drive-pi` run
+   also exercised the route end to end. Evidence:
+   `docs/cr/CR-0008-evidence/ac-1-route-probe.txt`.
+
+## Execution Evidence (gap fixer, 2026-08-03)
+
+Environment: stack up on the resolved edge port (`EDGE_PORT=24417` from `.env`), runtime
+`pi 0.80.3` (extension dev-dependency pinned `^0.80.3`, so no version drift). All commands
+were run against the live local stack. Full logs are under `docs/cr/CR-0008-evidence/`.
+
+| What was run | Result | Log |
+|--------------|--------|-----|
+| Live OTLP route probe (`/mlflow-otlp/v1/traces` with/without header, `/mlflow/v1/traces`, unprefixed `/v1/traces`) | 200 / 422 / 404 / 200 as expected | `ac-1-route-probe.txt` |
+| `scripts/mlflow.tracing.verify.sh --drive-pi` (after `--approve` fix) | PASS, `tr-2389e27e…`, exit 0 | `fr18-ac14-drive-pi.txt` |
+| `scripts/mlflow.tracing.pi.sh` enable (decline / confirm) and `--disable`, plus a disabled real pi turn | disclosure shown, decline made no change, confirm wrote the switch, disable removed it, disabled turn produced no trace | `fr17-ac12-ac13-enable-disable.txt` |
+| `make ci` (full pipeline) after the verifier edit | exit 0, all checks pass | `make-ci.txt` |
+
+Constraint honoured: conversation tracing was never enabled against the user's real pi
+configuration. Every enable/disable and every driven pi turn used a throwaway scratch
+directory under the system temp area; the `--drive-pi` mode creates and removes its own
+scratch dir and never touches this repository or the user's config. Synthetic probe and
+harness traces created during isolation were deleted from the `pi` experiment afterwards;
+only genuine pi-turn traces remain.
+
+### The one code change made to close a gap
+
+`scripts/mlflow.tracing.verify.sh`, function `drive_one_pi_turn`: added `--approve` to
+both the `pi install … -l` and the `pi -p` invocations, with comments explaining that a
+project-local extension is untrusted by default and headless pi skips it without the flag.
+No change to the extension package, the proxy config, the enable script, or any test — the
+extension code was already correct. `make ci` remains green.
