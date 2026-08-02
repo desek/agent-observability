@@ -59,13 +59,21 @@ the single port under `/mlflow/`:
 http://localhost:24317/mlflow/
 ```
 
-The stack provisions a `claude-code` experiment and a reserved `pi` experiment
-the moment MLflow reports healthy. Conversation tracing for Claude Code is off
-until you turn it on with `scripts/mlflow.autolog.claude.sh`, which names the
-file it changes, states what gets stored, and asks before it writes. pi
-conversation tracing is not provided; pi conversation content is available
-instead as readable log lines in Loki through the pi telemetry extension. The
-[privacy document](privacy.md) covers what tracing stores and how to remove it.
+The stack provisions a `claude-code` experiment and a `pi` experiment the moment
+MLflow reports healthy. Conversation tracing is off on both paths until you turn
+it on, and each enable script names what it changes, states what gets stored, and
+asks before it writes:
+
+* **Claude Code:** `scripts/mlflow.autolog.claude.sh`, writing to the
+  `claude-code` experiment.
+* **pi:** `scripts/mlflow.tracing.pi.sh`, which installs the
+  `@desek/pi-mlflow-tracing` extension's switch file, writing to the `pi`
+  experiment. By default it sends to the local stack through the edge port;
+  pass `--endpoint URL` (and `--tracking-uri URL`) to point it at a tracking
+  server elsewhere.
+
+The [privacy document](privacy.md) covers what tracing stores, how to send it
+elsewhere, and how to remove it.
 
 ## How an agent reads them
 

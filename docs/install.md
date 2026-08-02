@@ -108,6 +108,28 @@ file lists every key and every value, and the
 [troubleshooting table](troubleshooting.md) covers the two failures those two
 facts cause.
 
+## Turn on conversation tracing, optional and off by default
+
+Metrics and logs flow the moment an agent is wired. The MLflow conversation view,
+which shows a whole session turn by turn, is a separate opt-in because it stores
+the whole conversation: every prompt, every assistant response, and every tool
+input and output, in plaintext in the `mlflow-data` volume. Starting the stack
+never turns it on. Enable it per agent, each script states what it stores and
+where and asks before it writes anything:
+
+* **Claude Code:** `scripts/mlflow.autolog.claude.sh` enables it; it writes to
+  the `claude-code` experiment.
+* **pi:** `scripts/mlflow.tracing.pi.sh` enables it; it writes to the `pi`
+  experiment through the `@desek/pi-mlflow-tracing` extension. By default the
+  destination is the local stack, derived from the edge port, so nothing leaves
+  the machine. To send conversations to a tracking server elsewhere, pass
+  `--endpoint URL` (and `--tracking-uri URL` for the REST address); a
+  non-loopback destination is named in the disclosure. Disable and reverse the
+  change with `scripts/mlflow.tracing.pi.sh --disable`.
+
+The [privacy document](privacy.md) states what each path stores and how to delete
+stored conversations.
+
 ## See it populated, without wiring anything
 
 A freshly started stack shows empty panels, and empty panels do not tell you

@@ -122,9 +122,10 @@ the window. Fetch one trace by id with `$B/tempo/api/traces/<traceid>`.
 ### MLflow, a conversation question
 
 MLflow stores agent conversations as traces under an experiment. The Claude Code
-experiment is named `claude-code` with id `1`. Use the version 3 search endpoint
-with a `locations` body. The version 2 path returns 405, and a bare
-`experiment_ids` body returns 400.
+experiment is named `claude-code` with id `1`, and the pi experiment is named
+`pi` with id `2`; swap the id below to read the other agent's conversations. Use
+the version 3 search endpoint with a `locations` body. The version 2 path returns
+405, and a bare `experiment_ids` body returns 400.
 
 ```bash
 curl -s -X POST "$B/mlflow/api/3.0/mlflow/traces/search" \
@@ -134,7 +135,8 @@ curl -s -X POST "$B/mlflow/api/3.0/mlflow/traces/search" \
 ```
 
 An empty response is the expected result until conversation tracing is enabled
-and a turn is run. Enabling it is an ask-first action; see below.
+and a turn is run. Enabling it, for either agent, is an ask-first action; see
+below.
 
 ## Deep links, never hand-built
 
@@ -186,6 +188,11 @@ subset.
   `down -v` deletes all stored telemetry.
 * Modifying the provisioned Grafana dashboard. It is provisioned from a
   committed file and a manual edit drifts from source.
-* Enabling conversation tracing on the user's behalf
-  (`scripts/mlflow.autolog.claude.sh enable`). It records full conversations to
-  MLflow, which is a privacy decision that is the user's to make.
+* Enabling conversation tracing on the user's behalf, for either agent. Claude
+  Code is `scripts/mlflow.autolog.claude.sh enable`; pi is
+  `scripts/mlflow.tracing.pi.sh`, which turns on the `@desek/pi-mlflow-tracing`
+  extension through its `PI_MLFLOW_ENABLE` switch. Both record full conversations,
+  every prompt, response, and tool input and output, to MLflow, which is a
+  privacy decision that is the user's to make. pi tracing defaults to the local
+  stack; a configured `PI_MLFLOW_ENDPOINT` on a non-loopback host sends
+  conversation content off the machine, which is a second decision to surface.

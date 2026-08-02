@@ -32,10 +32,29 @@ address; if you do, anyone on that network can read your prompt and tool content
 
 ## What is off by default
 
-Conversation tracing to MLflow is off until you enable it with
-`scripts/mlflow.autolog.claude.sh`. When enabled it stores the whole
-conversation, which is the purpose of the feature. Starting the stack never turns
-it on.
+Conversation tracing to MLflow is off until you enable it, on both agent paths.
+Starting the stack never turns either on.
+
+* **Claude Code:** enable with `scripts/mlflow.autolog.claude.sh`. It writes to
+  the `claude-code` experiment.
+* **pi:** enable with `scripts/mlflow.tracing.pi.sh`, which installs the
+  `@desek/pi-mlflow-tracing` extension's switch file. It writes to the `pi`
+  experiment.
+
+When enabled, either path stores the whole conversation: every prompt, every
+assistant response, and every tool input and output, in plaintext in the
+`mlflow-data` volume. That is the purpose of the feature. pi tracing is driven by
+its master switch `PI_MLFLOW_ENABLE`; with the switch unset the extension
+registers nothing and opens no connection.
+
+By default pi tracing sends its conversation to the local stack through the
+loopback edge port, so nothing leaves the machine. To send it to a tracking
+server elsewhere, point the endpoint at that server. The enable script takes
+`--endpoint URL` (and `--tracking-uri URL` for the REST address), or set the
+`PI_MLFLOW_ENDPOINT` and `PI_MLFLOW_TRACKING_URI` environment variables. A
+configured non-loopback destination means conversation content leaves this
+machine, so the extension names that destination once at session start and the
+enable script names it in its disclosure.
 
 ## How to redact a field
 
@@ -54,9 +73,12 @@ redacts one field:
 
 Redacting a flag changes only what new telemetry carries; data already in the
 volumes is unchanged. To delete every conversation already stored in the
-`claude-code` experiment, call the tracking server's delete-traces API. To
-discard all stored telemetry together, tear the stack down with
-`docker compose down -v`, which removes every named volume:
+`claude-code` experiment (Claude Code) or the `pi` experiment (pi), call the
+tracking server's delete-traces API against that experiment. To stop pi from
+recording any further conversation, disable its tracing with
+`scripts/mlflow.tracing.pi.sh --disable`, which removes the switch file and
+reverses the change. To discard all stored telemetry together, tear the stack
+down with `docker compose down -v`, which removes every named volume:
 
 ```console
 $ docker compose down -v
