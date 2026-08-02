@@ -195,7 +195,9 @@ fi
 # shared and the local settings files. Reimplementing removal is not attempted.
 if [ "$mode" = "disable" ]; then
 	echo "claude-autolog: disabling Claude Code conversation tracing in ${directory}"
-	echo "  This clears the tracing configuration from both ${directory}/.claude/settings.json and ${directory}/.claude/settings.local.json through the client's own --disable."
+	echo "  This runs the client's own --disable, which removes the 'env' block (the three MLFLOW_* variables)"
+	echo "  from ${directory}/.claude/settings.json and ${directory}/.claude/settings.local.json."
+	echo "  Removing those variables turns the plugin runtime off, so no further turn produces a trace."
 	echo "  Already-stored conversations are not deleted by this; the README MLflow section states how to remove them."
 	if ! "${client_argv[@]}" autolog claude --disable -d "$directory"; then
 		echo "claude-autolog: FAIL the client's --disable command returned an error." >&2
@@ -203,7 +205,33 @@ if [ "$mode" = "disable" ]; then
 		echo "  After: confirm the status reports tracing is not enabled." >&2
 		exit 1
 	fi
-	echo "claude-autolog: done. Confirm with '${client_argv[*]} autolog claude --status -d \"$directory\"'."
+	echo
+	echo "claude-autolog: done. Tracing is off in ${directory}; a subsequent turn produces no trace."
+	# Report honestly what the client's own --disable leaves behind. Per FR27 the
+	# removal is the client's job and is NOT reimplemented here, but the client's
+	# --disable strips only the activating env block; it leaves the marketplace
+	# registration and the plugin enablement in place. Inspect the files and name
+	# exactly what remains, so the user is never told the file was fully restored
+	# when it was not.
+	residue_found=0
+	for f in "$directory/.claude/settings.local.json" "$directory/.claude/settings.json"; do
+		[ -f "$f" ] || continue
+		remaining="$(jq -r '[paths(scalars) as $p | $p[0]] | unique | map(select(. == "enabledPlugins" or . == "extraKnownMarketplaces")) | join(", ")' "$f" 2>/dev/null || true)"
+		if [ -n "$remaining" ]; then
+			if [ "$residue_found" -eq 0 ]; then
+				echo "  Note: the client's --disable removed the env block but left registration keys behind:"
+				residue_found=1
+			fi
+			echo "    ${f}: still contains ${remaining}"
+		fi
+	done
+	if [ "$residue_found" -eq 1 ]; then
+		echo "  These keys register the mlflow-plugins marketplace and enable the plugin, but with the env"
+		echo "  block gone the plugin runtime is inert and writes no trace. They are the client's own"
+		echo "  --disable behaviour (this script does not hand-edit settings). Remove them manually if you"
+		echo "  want the file byte-identical to its pre-enable state."
+	fi
+	echo "  Confirm with '${client_argv[*]} autolog claude --status -d \"$directory\"'."
 	exit 0
 fi
 
@@ -229,6 +257,13 @@ echo "  Directory it will configure : ${directory}"
 echo "  File it will write          : ${settings_file}"
 echo "                                (the local settings file, kept out of version control by default,"
 echo "                                 so a committed settings.json never enables this by inheritance)"
+echo "  Keys it will add            : the client's 'mlflow autolog claude' command adds these top-level keys:"
+echo "                                  - extraKnownMarketplaces  (registers the mlflow-plugins marketplace)"
+echo "                                  - enabledPlugins          (enables the mlflow-tracing plugin from it)"
+echo "                                  - env                     (an env block holding three tracing variables:)"
+echo "                                      * MLFLOW_CLAUDE_TRACING_ENABLED   turns the plugin runtime on"
+echo "                                      * MLFLOW_TRACKING_URI             the tracking address below"
+echo "                                      * MLFLOW_EXPERIMENT_ID            the claude-code experiment below"
 echo "  Tracking address            : ${tracking_uri}"
 echo "  Experiment                  : claude-code (id ${CLAUDE_EXPERIMENT_ID})"
 echo

@@ -2,7 +2,7 @@
 #
 # mlflow.verify.sh
 #
-# @agents-index Dependency-free end-to-end verifier for the stack MLflow tracking server: through the single edge port it creates a throwaway experiment, a run, logs a parameter and a metric, reads them back, asserts the values match, and deletes what it created.
+# @agents-index Dependency-free end-to-end verifier for the stack MLflow tracking server: through the single edge port it creates a throwaway experiment, a run, logs a parameter and a metric, uploads and downloads an artifact through the served artifact store, reads them all back, asserts the values match, and deletes what it created.
 #
 # Purpose: prove the MLflow tracking server answers a full write-then-read round
 # trip through the one loopback port, with no Python and no MLflow client. It
@@ -10,9 +10,12 @@
 # image. It creates a clearly named throwaway experiment (prefixed zz-verify so a
 # user tells it apart from the agent experiments), writes one run with one known
 # parameter and one known metric, reads them back through the REST API, and
-# asserts each read value equals the value written. It always removes the run and
-# the experiment it created, even when an assertion fails, so a passing stack is
-# left byte-for-byte as it was found.
+# asserts each read value equals the value written. It then round-trips an
+# artifact through the tracking server's own served artifact store (the
+# mlflow-artifacts proxy on the same single port), uploading known bytes and
+# downloading them back, and asserts the content matches. It always removes the
+# run, the experiment, and the artifact it created, even when an assertion fails,
+# so a passing stack is left byte-for-byte as it was found.
 #
 # Why a round trip and not a health ping: a 200 from /mlflow/health proves the
 # process is up, not that a write reaches the store and a read returns it. The
@@ -45,7 +48,7 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 # --- Usage -------------------------------------------------------------------
 usage() {
-	sed -n '3,37p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+	sed -n '3,40p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 case "${1:-}" in
@@ -108,6 +111,8 @@ fail() {
 # best-effort: a cleanup failure is reported but does not mask the real result.
 run_id=""
 experiment_id=""
+artifact_path=""
+artifact_tmp=""
 cleanup() {
 	if [ -n "$run_id" ]; then
 		curl -s -o /dev/null --max-time 10 "${mlflow_url}/api/2.0/mlflow/runs/delete" \
@@ -116,6 +121,15 @@ cleanup() {
 	if [ -n "$experiment_id" ]; then
 		curl -s -o /dev/null --max-time 10 "${mlflow_url}/api/2.0/mlflow/experiments/delete" \
 			-H 'Content-Type: application/json' -d "{\"experiment_id\":\"${experiment_id}\"}" || true
+	fi
+	if [ -n "$artifact_path" ]; then
+		# Remove the served artifact through the same proxy that stored it, so the
+		# store is left as it was found even when an assertion fails mid-run.
+		curl -s -o /dev/null --max-time 10 -X DELETE \
+			"${mlflow_url}/api/2.0/mlflow-artifacts/artifacts/${artifact_path}" || true
+	fi
+	if [ -n "$artifact_tmp" ]; then
+		rm -f "$artifact_tmp" || true
 	fi
 }
 trap cleanup EXIT
@@ -180,4 +194,41 @@ if ! printf '%s' "$got_metric" | jq -e --argjson want "$expected_metric" '. as $
 		"re-run 'scripts/mlflow.verify.sh' and confirm the metric round-trips unchanged."
 fi
 
-echo "mlflow-verify: PASS write-then-read round trip through port ${edge_port} (param and metric match, throwaway experiment removed)."
+# --- Served-artifact round trip ----------------------------------------------
+# The tracking server serves artifacts itself through the mlflow-artifacts proxy,
+# so clients never touch the filesystem directly. Prove that path too: upload
+# known bytes through the proxy on the same single port, download them back, and
+# assert the content matches. This exercises the served artifact store, which the
+# experiment/run/param/metric round trip above does not touch.
+artifact_content="verify-artifact-${now_ms}-$$"
+artifact_path="zz-verify-artifact-${$}-${now_ms}/payload.txt"
+
+# Step 6: upload the artifact through the served store.
+put_code="$(printf '%s' "$artifact_content" | curl -s -o /dev/null -w '%{http_code}' \
+	--max-time 15 -X PUT "${mlflow_url}/api/2.0/mlflow-artifacts/artifacts/${artifact_path}" \
+	--data-binary @- || true)"
+if [ "$put_code" != "200" ]; then
+	fail "the served artifact store did not accept the upload (HTTP ${put_code:-none}) for '${artifact_path}'." \
+		"confirm the mlflow-artifacts proxy answers on port ${edge_port}; the server must run with '--serve-artifacts' (the pinned image does). Check 'docker compose logs mlflow' for a rejected PUT." \
+		"re-run 'scripts/mlflow.verify.sh' and confirm the artifact uploads with HTTP 200."
+fi
+
+# Step 7: download the artifact back and capture its bytes.
+artifact_tmp="$(mktemp "${TMPDIR:-/tmp}/mlflow-verify-artifact.XXXXXX")"
+get_code="$(curl -s -o "$artifact_tmp" -w '%{http_code}' --max-time 15 \
+	"${mlflow_url}/api/2.0/mlflow-artifacts/artifacts/${artifact_path}" || true)"
+if [ "$get_code" != "200" ]; then
+	fail "the served artifact store did not return the artifact (HTTP ${get_code:-none}) for '${artifact_path}'." \
+		"the upload reported success but the download failed; inspect the mlflow backend log for the GET and confirm the artifact root is writable." \
+		"re-run 'scripts/mlflow.verify.sh' and confirm the artifact downloads with HTTP 200."
+fi
+got_artifact="$(cat "$artifact_tmp")"
+
+# Step 8: assert the downloaded content equals what was uploaded.
+if [ "$got_artifact" != "$artifact_content" ]; then
+	fail "the artifact read back ('${got_artifact:-none}') does not equal the bytes written ('${artifact_content}')." \
+		"the served store did not persist the upload intact; inspect the mlflow backend log and the artifact root volume." \
+		"re-run 'scripts/mlflow.verify.sh' and confirm the artifact round-trips unchanged."
+fi
+
+echo "mlflow-verify: PASS write-then-read round trip through port ${edge_port} (param and metric match, artifact round-trips through the served store, throwaway experiment and artifact removed)."

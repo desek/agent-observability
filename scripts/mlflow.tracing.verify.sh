@@ -22,6 +22,14 @@
 #     directory, then asserts. This mode needs the 'claude' CLI and its
 #     authentication and is for a human proving the integration by hand, never for
 #     ci.
+#   --survives-stopped is the NFR2 and AC-13 proof: with the tracking server
+#     unreachable, one real Claude Code turn with tracing enabled must still
+#     complete normally and surface no error. The mode refuses to run unless the
+#     server is actually down (so it cannot pass by accident against a live
+#     server), enables tracing in a scratch directory, drives a turn, and asserts
+#     the turn produced its expected output and exited cleanly. It writes no trace
+#     assertion, because the point is that a failed trace write never reaches the
+#     user. Like --drive it needs the 'claude' CLI and is never used by ci.
 #
 # Why the version 3 endpoint: MLflow 3 stores traces under a location, so the
 # working search is POST api/3.0/mlflow/traces/search with a 'locations' list
@@ -32,12 +40,19 @@
 # Usage:
 #   scripts/mlflow.tracing.verify.sh          Assert against existing traces (ci mode).
 #   scripts/mlflow.tracing.verify.sh --drive  Run one real Claude Code turn, then assert.
+#   scripts/mlflow.tracing.verify.sh --survives-stopped
+#                                             With the tracking server stopped, run one
+#                                             real turn and assert it completes normally.
 #   scripts/mlflow.tracing.verify.sh -h       Print this usage and exit 0.
 #
 # Parameters:
 #   -h, --help   Print usage and exit 0.
 #   --drive      Drive one real agent turn before asserting. Needs the claude CLI
 #                and its authentication. Never used by ci.
+#   --survives-stopped
+#                Prove NFR2 and AC-13: with the tracking server unreachable, one
+#                real turn still completes and surfaces no error. Refuses to run
+#                against a reachable server. Needs the claude CLI. Never used by ci.
 #
 # Environment:
 #   EDGE_PORT    Loopback host port the edge proxy publishes. Read from the shell
@@ -56,7 +71,7 @@ repo_root="$(cd "$script_dir/.." && pwd)"
 
 # --- Usage -------------------------------------------------------------------
 usage() {
-	sed -n '3,50p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+	sed -n '3,62p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
 }
 
 mode="assert"
@@ -68,10 +83,13 @@ case "${1:-}" in
 	--drive)
 		mode="drive"
 		;;
+	--survives-stopped)
+		mode="survives-stopped"
+		;;
 	"") ;;
 	*)
 		echo "tracing-verify: FAIL unknown argument '$1'." >&2
-		echo "  Fix: run with no argument for assert-only, '--drive' to produce a turn first, or '-h' for usage." >&2
+		echo "  Fix: run with no argument for assert-only, '--drive' to produce a turn first, '--survives-stopped' to prove a turn survives a stopped server, or '-h' for usage." >&2
 		echo "  After: re-run the command with a supported argument." >&2
 		exit 2
 		;;
@@ -161,6 +179,67 @@ drive_one_turn() {
 	# The plugin runtime writes the trace after the turn ends; give it a moment.
 	sleep 3
 }
+
+# --- Prove a turn survives a stopped tracking server (NFR2, AC-13) ------------
+# With the tracking server unreachable, one real turn with tracing enabled must
+# still complete and surface no error, because the plugin runtime writes the
+# trace after the turn ends and a failed write must never reach the user. The
+# mode refuses to run against a reachable server, so it cannot pass by accident;
+# the operator stops the server first (for this stack:
+# 'docker compose -p agent-observability stop mlflow', restored with 'start').
+prove_survives_stopped() {
+	if ! command -v claude >/dev/null 2>&1; then
+		fail "the --survives-stopped mode needs the 'claude' CLI, which is not on PATH." \
+			"install the Claude Code CLI and authenticate it." \
+			"run 'claude --version' and confirm it prints, then re-run with '--survives-stopped'."
+	fi
+	# Refuse unless the server is genuinely unreachable, so a live server cannot
+	# make this pass silently. A reachable /health returns HTTP 200.
+	local health_code
+	health_code="$(curl -s -o /dev/null -w '%{http_code}' --max-time 5 "${mlflow_url}/health" || true)"
+	if [ "$health_code" = "200" ]; then
+		fail "the tracking server at ${mlflow_url} is still reachable (health ${health_code}); this mode needs it stopped." \
+			"stop the tracking server first, for this stack 'docker compose -p agent-observability stop mlflow', then re-run. Restore it afterwards with 'docker compose -p agent-observability start mlflow'." \
+			"confirm 'curl -s -o /dev/null -w %{http_code} ${mlflow_url}/health' does not return 200, then re-run with '--survives-stopped'."
+	fi
+	echo "tracing-verify: server at ${mlflow_url} is unreachable (health '${health_code:-none}'), as this mode requires."
+	local scratch
+	scratch="$(mktemp -d "${TMPDIR:-/tmp}/mlflow-tracing-survives.XXXXXX")"
+	trap 'rm -rf "$scratch"' RETURN
+	# Enable tracing in the scratch directory. Enable only writes settings through
+	# the client and does not need the tracking server, so it succeeds while the
+	# server is down.
+	echo "tracing-verify: enabling tracing in scratch directory ${scratch}"
+	EDGE_PORT="$edge_port" "$script_dir/mlflow.autolog.claude.sh" --yes -d "$scratch" >/dev/null \
+		|| fail "enabling tracing in the scratch directory failed." \
+			"run 'scripts/mlflow.autolog.claude.sh --yes -d ${scratch}' by hand and read its failure message." \
+			"fix the cause it names, then re-run with '--survives-stopped'."
+	echo "tracing-verify: driving one claude turn with the tracking server stopped"
+	local turn_out turn_rc expected="survivestopped"
+	# Disable errexit around the capture so a non-zero turn is inspected here
+	# rather than aborting the script before the exit status is read.
+	set +e
+	turn_out="$(cd "$scratch" && printf 'Print the word survivestopped and nothing else.' | claude -p 2>&1)"
+	turn_rc=$?
+	set -e
+	echo "tracing-verify: turn exit status ${turn_rc}; output: ${turn_out}"
+	if [ "$turn_rc" -ne 0 ]; then
+		fail "the claude turn did not complete cleanly with the server stopped (exit ${turn_rc})." \
+			"NFR2 requires the turn to survive a tracking-server failure; if the turn itself failed, confirm the CLI is authenticated ('claude /status') and re-run." \
+			"restore the server ('docker compose -p agent-observability start mlflow') and re-run."
+	fi
+	if ! printf '%s' "$turn_out" | grep -qi "$expected"; then
+		fail "the turn completed but its output did not contain the expected word '${expected}' (got: ${turn_out})." \
+			"the turn should answer normally even with tracing unable to write; inspect the output above." \
+			"restore the server and re-run with '--survives-stopped'."
+	fi
+	echo "tracing-verify: PASS a turn completed normally (exit 0, expected output present) with the tracking server stopped; the failed trace write surfaced no error."
+}
+
+if [ "$mode" = "survives-stopped" ]; then
+	prove_survives_stopped
+	exit 0
+fi
 
 # --- Assert a trace carries both turns ----------------------------------------
 echo "tracing-verify: checking experiment '${experiment_name}' at ${mlflow_url}"
