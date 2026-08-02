@@ -38,7 +38,7 @@ The extension is also the piece with the most exposure. Configuration files fail
 
 ## Current State
 
-The extension is a directory of roughly 2,650 lines of TypeScript, half of it tests, organised one concern per file: environment configuration, git provenance derivation, collector health probing, standard attribute construction, provider setup, and three emitters for metrics, log events, and traces. Every source file has a sibling test file, and tests run with the Node built-in test runner and type stripping, with no build step and no test framework dependency.
+The extension is a directory of roughly 2,650 lines of TypeScript, about a quarter of it tests, organised one concern per file: environment configuration, git provenance derivation, collector health probing, standard attribute construction, provider setup, and three emitters for metrics, log events, and traces. Every source file has a sibling test file, and tests run with the Node built-in test runner and type stripping, with no build step and no test framework dependency.
 
 Functionally it is complete. It emits eight metric instruments under the `pi.` namespace, the log event family that mirrors Claude Code's, and a span hierarchy of interaction, model request, tool, and tool execution. It honours the same content-logging and cardinality flags Claude Code uses, stamps git provenance, and exports over OTLP gRPC to the stack's single port by default. It is a hard no-op unless its master switch is truthy, and when neither the switch nor an endpoint is set it probes collector health and stays silent if the collector is absent.
 
@@ -75,7 +75,7 @@ Move the extension into this repository and make it a first-class published pack
 
 2. **A publishable manifest.** `package.json` drops `private`, sets the scoped name, an initial version of `0.1.0`, `license: "Apache-2.0"`, a description written for a stranger, `repository`, `homepage`, and `bugs` pointing at this repository, an explicit `files` list so only source, manifest, license, and README are published, `publishConfig` with public access because a scoped package defaults to restricted, an `engines` range naming the supported Node versions, and the `keywords` array containing `pi-package` so the package appears in the pi package gallery.
 
-3. **The pi manifest entry, verified rather than assumed.** The `pi` key declares the extension entry point. The current entry is a TypeScript file, which pi loads under type stripping when the package is a local path. Whether that holds for a package installed from npm is a question that **MUST** be answered against pi's own source before publication rather than assumed from local behaviour. Two outcomes are acceptable, and the implementer chooses based on what the source says: either the manifest keeps pointing at TypeScript source, or the package gains a build step that emits JavaScript with type declarations and the manifest points at the built entry. If a build step is introduced, the published `files` list ships the build output and the source map, and the test command continues to run against the source.
+3. **The pi manifest entry, verified rather than assumed.** The `pi` key declares the extension entry point. The current entry is a TypeScript file, which pi loads under type stripping when the package is a local path. Whether that holds for a package installed from npm is a question this change requires be settled against pi's own source before publication, rather than assumed from local behaviour (FR10). Two outcomes are acceptable, and the implementer chooses based on what the source says: either the manifest keeps pointing at TypeScript source, or the package gains a build step that emits JavaScript with type declarations and the manifest points at the built entry. If a build step is introduced, the published `files` list ships the build output and the source map, and the test command continues to run against the source.
 
 4. **Dependency policy for a shared runtime.** The OpenTelemetry API package is moved to a peer dependency with a permissive range, because two copies of the API package in one process silently break instrumentation registration. The software development kit and exporter packages stay as ordinary dependencies with ranges that admit patch updates, so a security fix does not require a release of this package. The lockfile is committed so continuous integration builds against a known set, while consumers resolve within the declared ranges.
 
@@ -85,7 +85,7 @@ Move the extension into this repository and make it a first-class published pack
    * It emits nothing unless its master switch is truthy, or unless it is enabled by the health-gated dynamic default.
    * With neither the switch nor an endpoint set, it probes the collector and stays silent when the collector is absent, so installing it on a machine without this stack costs nothing.
    * Every content-logging flag defaults to off, so prompts, responses, tool content, and raw request bodies are never exported unless the user opts in explicitly.
-   * An export failure, an unreachable collector, or a malformed configuration **MUST NOT** raise into the agent, block a turn, or change agent behaviour in any way.
+   * An export failure, an unreachable collector, or a malformed configuration never raises into the agent, blocks a turn, or changes agent behaviour in any way (FR15).
 
 7. **Versioning and changelog.** The package follows semantic versioning. A `CHANGELOG.md` records every release under a dated heading. The version in the manifest is the single source of truth, and the publish workflow refuses to publish a version that is already on the registry.
 
@@ -231,7 +231,7 @@ Rewrite the README for an external reader: purpose, install, enable, configure, 
 
 ### Phase 5: Continuous integration and the smoke test
 
-Add the test workflow across the supported Node versions. Add the installation smoke test that packs, installs into a clean directory, and loads the declared entry point. This is the test that proves the decision made in Phase 2 was correct.
+Add the test workflow across the supported Node versions. Add the installation smoke test that packs, installs into a clean directory, and loads the declared entry point. Name the smoke-test script `scripts/pi-package.verify.sh` so it matches this repository's `scripts/*.verify.sh` discovery glob and `make ci` runs it, in addition to the GitHub Actions workflow that invokes it directly. This is the test that proves the decision made in Phase 2 was correct.
 
 ### Phase 6: Publication and the bootstrap sequence
 
@@ -285,8 +285,8 @@ The package already has a unit test per source file. This change preserves those
 | `packages/pi-opentelemetry/src/package.manifest.test.ts` | `manifest entry point exists on disk` | Asserts the path in the `pi` manifest resolves to a file that is in the published `files` list | `package.json` | Assertion passes |
 | `packages/pi-opentelemetry/src/package.manifest.test.ts` | `api package is a peer dependency` | Asserts the OpenTelemetry API package is declared as a peer and not as an ordinary dependency | `package.json` | Assertion passes |
 | `packages/pi-opentelemetry/src/package.manifest.test.ts` | `version agrees with changelog` | Asserts the manifest version equals the newest changelog heading | `package.json`, `CHANGELOG.md` | Assertion passes |
-| `scripts/pi-package.smoke.sh` | `pack install and load` | Packs the package, installs the tarball into a clean temporary directory, and loads the declared entry point | Repository working tree | Exit 0; entry point loads |
-| `scripts/pi-package.smoke.sh` | `tarball excludes tests and lockfile` | Asserts the packed tarball contains no test file and no lockfile | Packed tarball | Exit 0; zero matches |
+| `scripts/pi-package.verify.sh` | `pack install and load` | Packs the package, installs the tarball into a clean temporary directory, and loads the declared entry point | Repository working tree | Exit 0; entry point loads |
+| `scripts/pi-package.verify.sh` | `tarball excludes tests and lockfile` | Asserts the packed tarball contains no test file and no lockfile | Packed tarball | Exit 0; zero matches |
 | `packages/pi-opentelemetry/src/index.test.ts` | `no-op when master switch is false` | Asserts no exporter is constructed and no signal is emitted when the switch is false | Environment with the switch set false | No exporter constructed |
 | `packages/pi-opentelemetry/src/index.test.ts` | `silent when collector is unreachable` | Asserts no exception escapes and nothing above debug is logged when export fails | Unreachable endpoint | No throw; no error log |
 | `packages/pi-opentelemetry/src/index.test.ts` | `content flags default to off` | Asserts prompt, response, tool content, and raw body content are absent when no content flag is set | Environment with no content flags | No content attributes present |
@@ -307,7 +307,7 @@ The package already has a unit test per source file. This change preserves those
 
 ## Acceptance Criteria
 
-### AC-1: The package is publishable (covers FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9)
+### AC-1: The package is publishable (covers FR2, FR3, FR4, FR5, FR6, FR7, FR8, FR9, FR11, FR20)
 
 ```gherkin
 Given the package manifest
@@ -319,6 +319,8 @@ Then the name is @desek/pi-opentelemetry
   And keywords contain pi-package
   And publishConfig declares public access
   And files and engines are declared
+  And the OpenTelemetry API package is declared as a peer dependency and not as an ordinary dependency
+  And a CHANGELOG.md is present recording the release under a dated heading
 ```
 
 ### AC-2: A registry install loads the extension (covers FR10, FR22)
@@ -331,7 +333,7 @@ Then the load succeeds with no error
   And the smoke test exits 0
 ```
 
-### AC-3: The tarball ships only what it should (covers FR8, NFR4)
+### AC-3: The tarball ships only the intended files (covers FR8, NFR4)
 
 ```gherkin
 Given the packed tarball
@@ -461,6 +463,16 @@ Then it returns desek
   And no npm organisation is created for publication
 ```
 
+### AC-16: The package keeps its one-concern-per-file layout (covers FR1)
+
+```gherkin
+Given the moved package in this repository
+When its layout is inspected
+Then the source lives at packages/pi-opentelemetry/
+  And each source file has exactly one sibling test file
+  And no concern is merged into another file during the move
+```
+
 ## Quality Standards Compliance
 
 ### Build & Compilation
@@ -473,7 +485,7 @@ Then it returns desek
 
 - [ ] Every source file retains its top docstring and one `@agents-index` line
 - [ ] Every exported function documents purpose, parameters, return value, side effects, and thrown errors
-- [ ] `shellcheck` passes on `scripts/pi-package.smoke.sh`
+- [ ] `shellcheck` passes on `scripts/pi-package.verify.sh`
 
 ### Test Execution
 
@@ -522,8 +534,9 @@ cat > .npmrc <<'EOF'
 //registry.npmjs.org/:_authToken=${NPM_TOKEN}
 EOF
 
-# Pack, install into a clean directory, and load the entry point
-./scripts/pi-package.smoke.sh
+# Pack, install into a clean directory, and load the entry point.
+# Named to match the scripts/*.verify.sh glob, so `make ci` also runs it.
+./scripts/pi-package.verify.sh
 
 # No private references anywhere in the package
 grep -rn "pi-extensions/\|link-pi.sh\|agent-orchestration\|CR-[0-9]\{4\}" packages/pi-opentelemetry ; test $? -eq 1
@@ -600,3 +613,26 @@ Chosen approach: "publish the existing extension as a scoped, Apache-2.0, semant
 * CR-0002: the dashboard that renders the `pi_*` metric family this package emits.
 * CR-0006: the installation path that configures pi to use this package.
 * CR-0007: the README section presenting the package to a new user.
+
+<!-- review-summary -->
+## Review Summary (cr-reviewer, 2026-08-02)
+
+Findings by category:
+- drift: 1 (the "half of it tests" line count claim)
+- convention: 3 (smoke-script name outside the `scripts/*.verify.sh` glob; two prose uses of RFC-2119 keywords)
+- coverage: 3 (FR1, FR11, FR20 traced to no acceptance criterion)
+- ambiguity: 1 (AC-3 title used "should")
+
+Fixes applied:
+- Drift: Current State said "roughly 2,650 lines of TypeScript, half of it tests". Verified against the source at `/Users/desek/Repo/desek/experiments/claude-agent-teams/pi-extensions/pi-opentelemetry/`: `wc -l src/*.ts` totals 2656 lines, of which `src/*.test.ts` is 674 lines (about 25 percent). Changed "half" to "about a quarter". File and instrument counts (9 source, 9 tests, 8 metric instruments), the private `package.json` shape, the `--experimental-strip-types` test command, and the `.pi/extensions/pi-opentelemetry` symlink were all verified accurate and left unchanged.
+- Convention: renamed the installation smoke test from `scripts/pi-package.smoke.sh` to `scripts/pi-package.verify.sh` in the Test Strategy table, Quality Standards, and Verification Commands, and added a Phase 5 note, because `make ci` discovers verification scripts only by the `scripts/*.verify.sh` glob (verified in the Makefile `verify` target). Reworded the two prose occurrences of bold MUST or MUST NOT (Proposed Change items 3 and 6) to plain prose with an FR reference, per the house rule that RFC-2119 keywords appear only in requirements, gherkin, and quoted Mermaid labels.
+- Coverage: extended AC-1 to cover FR11 (peer dependency) and FR20 (changelog), and added AC-16 to cover FR1 (file layout). Every FR and NFR now traces to at least one AC, and every AC "covers" list names only requirements that exist (checked FR1 to FR31, NFR1 to NFR6).
+- Ambiguity: AC-3 title "ships only what it should" changed to "ships only the intended files".
+
+Verified factual claims (command and result):
+- `npm --version` returned `11.12.1` (confirms the machine is at or above 11.10.0 for `npm trust`).
+- `curl -s -o /dev/null -w "%{http_code}" https://registry.npmjs.org/@desek%2Fpi-opentelemetry` returned `404` (confirms the scoped name is unclaimed).
+- `npm whoami` returned `401 Unauthorized` in this environment, not `desek`. The claim that the account authenticates could not be verified here; the CR states the account owner runs it while signed in, which is out of scope to prove from this session.
+
+Unresolvable items requiring human decision: none.
+<!-- /review-summary -->
