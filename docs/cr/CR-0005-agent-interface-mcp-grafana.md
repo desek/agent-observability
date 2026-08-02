@@ -9,7 +9,7 @@ stakeholders: Repository maintainers, coding-agent users, open-source contributo
 priority: "high"
 target-version: "0.1.0"
 source-branch: main
-source-commit: none (repository has no commits yet)
+source-commit: 7db5fe3
 ---
 
 # Agent Interface: AGENTS.md, the Grafana MCP Server, and an Example .mcp.json

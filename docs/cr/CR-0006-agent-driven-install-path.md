@@ -9,7 +9,7 @@ stakeholders: Repository maintainers, Claude Code users, pi users, open-source c
 priority: "critical"
 target-version: "0.1.0"
 source-branch: main
-source-commit: none (repository has no commits yet)
+source-commit: 7db5fe3
 ---
 
 # Software 3.0 Installation Path for Agent Telemetry
