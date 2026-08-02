@@ -39,7 +39,7 @@ A dashboard is also the artifact that demonstrates the project. The README scree
 
 After CR-0001, Grafana starts with Loki, Mimir, and Tempo provisioned and healthy, and with no dashboard provisioning provider at all. The `stack/grafana/provisioning/` tree contains only `datasources/datasources.yaml`.
 
-The data that exists is known, because it was read from a running stack rather than assumed. Mimir holds these agent metric series:
+The data that exists is known, because it was read from a running stack rather than assumed. Each agent emits the metric families below. On the stack that hosts this change, Claude Code telemetry is present and the cost, token, session, and active-time families are populated. The lines-of-code, edit-tool-decision, commit, and pull-request families populate only after the agent writes code, edits, commits, or opens a pull request, so they are absent until the agent performs those actions. The pi extension is not installed on this stack yet, so no `pi_*` series exist here; the pi family is confirmed only on the parent stack where pi has run. Mimir holds these agent metric families:
 
 | Claude Code | pi | What it counts |
 |---|---|---|
@@ -52,18 +52,18 @@ The data that exists is known, because it was read from a running stack rather t
 | `claude_code_commit_count_total` | `pi_commit_count_total` | Commits created |
 | `claude_code_pull_request_count_total` | `pi_pull_request_count_total` | Pull requests created |
 
-The label sets differ between the two agents, and that difference is load-bearing for dashboard design. Claude Code series carry `session_id`, `model`, `app_version`, `app_entrypoint`, `terminal_type`, `agent_name`, `query_source`, `effort`, and several user identity labels (`user_email`, `user_id`, `user_account_uuid`, `organization_id`). pi series carry `model` and the four git provenance labels but no `session_id` and no user identity labels. Both carry `job`, which is `claude-code` or `pi-coding-agent`, and both carry `git_org`, `git_repo`, `git_branch`, and `git_path`.
+The label sets differ between the two agents, and that difference is load-bearing for dashboard design. Claude Code series carry `session_id`, `model`, `app_version`, `app_entrypoint`, `terminal_type`, `query_source`, `effort`, and several user identity labels (`user_email`, `user_id`, `user_account_id`, `user_account_uuid`, `organization_id`). pi series carry `model` and the four git provenance labels but no `session_id` and no user identity labels. Both carry `job`, which is `claude-code` or `pi-coding-agent`, and both carry `git_org`, `git_repo`, `git_branch`, and `git_path`. The Claude Code label set was read from this running stack. The pi label set is confirmed only on the parent stack where pi has run.
 
-Loki holds log streams under `service_name` values `claude-code`, `pi-coding-agent`, and `haproxy-edge`, with the same four git labels indexed. Log bodies are already rewritten into readable one-line summaries by the Alloy transform, so a stream panel is readable without further processing.
+Loki holds log streams under `service_name` values `claude-code`, `pi-coding-agent`, and `haproxy-edge`. The git provenance labels are present on Mimir metric series, not on Loki streams; a Loki stream carries `service_name` and structured metadata such as `session_id`, `model`, and event fields, but not `git_repo` or `git_branch`. A log panel therefore filters by agent through `service_name`, and it cannot filter by repository or branch through a stream label. Log bodies are already rewritten into readable one-line summaries by the Alloy transform, for example `[api_request] model=... in=... out=... cost_usd=...` and `[assistant_response] ...`, so a stream panel is readable without further processing.
 
-Tempo holds spans under `resource.service.name` of `claude-code`, with span names `claude_code.llm_request`, `claude_code.tool`, `claude_code.tool.execution`, and `claude_code.tool.blocked_on_user`. The pi extension emits the parallel `pi.interaction`, `pi.llm_request`, `pi.tool`, and `pi.tool.execution` hierarchy.
+Tempo holds spans under `resource.service.name` of `claude-code`, with span names `claude_code.llm_request`, `claude_code.tool`, `claude_code.tool.execution`, and `claude_code.tool.blocked_on_user`. The pi extension emits the parallel `pi.interaction`, `pi.llm_request`, `pi.tool`, and `pi.tool.execution` hierarchy. On this stack Tempo currently holds no agent spans, because the ingested Claude Code session did not export traces; the span names above are confirmed on the parent stack. A trace panel therefore executes and returns an explicit empty result on this stack until an agent exports spans.
 
 ### Current State Diagram
 
 ```mermaid
 flowchart LR
     AGENT["Claude Code and pi"] -->|"OTLP"| ALLOY["Alloy"]
-    ALLOY --> MIMIR["Mimir: 16 agent metric series"]
+    ALLOY --> MIMIR["Mimir: agent metric families, eight per agent"]
     ALLOY --> LOKI["Loki: readable log streams"]
     ALLOY --> TEMPO["Tempo: agent span hierarchy"]
     MIMIR --> GRAFANA["Grafana"]
@@ -86,7 +86,7 @@ Add a dashboard provisioning provider and one committed dashboard covering all t
    * `model`: multi-value, "All" by default.
    * `datasource_metrics`, `datasource_logs`, `datasource_traces`: datasource variables defaulting to the provisioned Mimir, Loki, and Tempo, so a user with renamed datasources is not stuck.
 
-   Every variable except the datasource variables includes an "All" option, and every panel query filters on them, so no panel ignores the user's selection.
+   Every variable except the datasource variables includes an "All" option, and every panel query filters on the variables that apply to its datasource, so no panel ignores a selection it can act on. The `git_repo` and `git_branch` variables apply to Mimir metric panels, because git provenance is on the metric series. Loki and Tempo panels filter by agent, because the git labels are not present on Loki streams or Tempo spans.
 
 4. **Panel set.** Grouped into four rows, each row answering one question.
 
@@ -96,7 +96,7 @@ Add a dashboard provisioning provider and one committed dashboard covering all t
 
    **Row: Activity and outcomes.** A time series of lines of code added and removed; a time series of edit tool decisions split by decision, which surfaces a rejection rate; a stat pair for commits and pull requests created; a time series of session starts.
 
-   **Row: Conversation and traces.** A Loki logs panel showing the readable conversation stream for the selected agents and repository, which is the panel that shows prompts, responses, and tool digests as text; a Loki panel filtered to tool events; and a Tempo panel showing recent agent traces so a reader can click into a span hierarchy.
+   **Row: Conversation and traces.** A Loki logs panel showing the readable conversation stream for the selected agents, which is the panel that shows prompts, responses, and tool digests as text; a Loki panel filtered to tool events; and a Tempo panel showing recent agent traces so a reader can click into a span hierarchy. The Loki and Tempo panels filter by agent through `service_name`, not by repository or branch, because git provenance labels are not present on Loki streams or Tempo spans.
 
 5. **Correct query semantics.** Every counter panel uses an increase or rate over `$__rate_interval` rather than a bare counter, because a bare counter renders as a monotonic ramp that tells the reader nothing. Stat panels use `increase(...[$__range])` so the displayed number is "in the selected window". Cost panels format as currency in dollars; token panels format as short numbers; time panels format as seconds.
 
@@ -146,7 +146,7 @@ flowchart TD
 16. Every counter-derived panel **MUST** use a rate or increase function rather than the raw counter value.
 17. Cost panels **MUST** use a currency unit in United States dollars, token panels a short-number unit, and time panels a seconds unit.
 18. Every query **MUST** cover both the `claude_code_*` and the `pi_*` metric families where both exist, selected through the agent variable.
-19. No panel **MUST** group by, display, or filter on a user identity label, specifically `user_email`, `user_id`, `user_account_uuid`, or `organization_id`.
+19. A panel **MUST NOT** group by, display, or filter on a user identity label, specifically `user_email`, `user_id`, `user_account_id`, `user_account_uuid`, or `organization_id`.
 20. Any panel whose data exists for only one agent **MUST** state that limitation in its panel description.
 21. Every panel **MUST** define a "no data" message naming the likely cause and the action that produces data.
 22. The dashboard JSON **MUST** be committed in a form that Grafana loads without modification, and the repository **MUST** contain a script that validates it loads and that every panel returns either data or an explicit empty result rather than a query error.
@@ -217,11 +217,11 @@ Add the provider file and the compose mount. Confirm Grafana lists an empty prov
 
 ### Phase 2: Metric panels
 
-Author the Overview, Cost and tokens, and Activity and outcomes rows against the real metric names and labels. Verify each query in Grafana Explore against the running stack before it is committed to the JSON, so no panel ships with a query that has never returned data.
+Author the Overview, Cost and tokens, and Activity and outcomes rows against the real metric names and labels. Verify each query in Grafana Explore against the running stack before it is committed to the JSON. A query MUST execute without error and MUST return either data or an explicit empty result. The cost, token, session, and active-time families return data on this stack. The lines-of-code, edit-tool-decision, commit, and pull-request families, and the whole `pi_*` family, return an explicit empty result here until the agent performs the action or pi is installed, so verify those queries parse and execute rather than requiring a non-empty result.
 
 ### Phase 3: Log and trace panels
 
-Add the Loki conversation stream, the Loki tool event panel, and the Tempo trace panel. Confirm the log panel renders the readable rewritten line rather than a bare event name, and that a trace opens into its span hierarchy.
+Add the Loki conversation stream, the Loki tool event panel, and the Tempo trace panel. Confirm the log panel renders the readable rewritten line rather than a bare event name. Confirm a trace opens into its span hierarchy where trace data exists. On a stack whose Tempo holds no spans, confirm the trace panel executes and returns an explicit empty result rather than a query error.
 
 ### Phase 4: Variables, units, descriptions, and empty states
 
@@ -268,6 +268,7 @@ The deliverable is a JSON document plus provisioning, so the tests are executabl
 | `scripts/dashboard.verify.sh` | `assert_counters_use_rate` | Asserts every metric target uses `rate`, `increase`, or an equivalent function | Dashboard JSON | Exit 0; zero bare counter targets |
 | `scripts/dashboard.verify.sh` | `assert_variables_present` | Asserts the agent, repository, branch, model, and datasource variables exist | Dashboard JSON | Exit 0; all present |
 | `scripts/dashboard.verify.sh` | `assert_panel_descriptions` | Asserts every panel has a non-empty description and a no-data message | Dashboard JSON | Exit 0; zero panels missing either |
+| `scripts/dashboard.verify.sh` | `assert_json_reviewable` | Asserts the JSON carries no absolute filesystem path and no volatile per-session identifier | Dashboard JSON | Exit 0; zero matches |
 
 ### Tests to Modify
 
@@ -299,13 +300,14 @@ Then Grafana reports the dashboard is provisioned and cannot be saved in place
   And the committed JSON is unchanged
 ```
 
-### AC-3: Panels populate after a single agent session (covers FR10, FR11, FR13, FR14, FR15)
+### AC-3: Panels populate after a single agent session (covers FR10, FR11, FR12, FR13, FR14, FR15)
 
 ```gherkin
 Given the stack is running and telemetry is wired for one agent
 When the user runs one non-interactive agent session and waits 30 seconds
 Then the overview stat panels show non-zero cost, tokens, and session count
   And the token panel shows at least one series broken out by type
+  And the cost-by-repository panel shows at least one repository bar
   And the log panel shows the prompt and the response as readable lines
 ```
 
@@ -339,11 +341,11 @@ Then cost is formatted as United States dollars
   And time is formatted in seconds
 ```
 
-### AC-7: No identity data is displayed (covers FR19, and the public screenshot requirement of CR-0007)
+### AC-7: No identity data is displayed (covers FR19)
 
 ```gherkin
 Given the dashboard JSON
-When it is searched for user_email, user_id, user_account_uuid, and organization_id
+When it is searched for user_email, user_id, user_account_id, user_account_uuid, and organization_id
 Then zero matches are found
   And no rendered panel displays an email address or a user identifier
 ```
@@ -410,6 +412,24 @@ Then every panel renders using a bundled panel type
   And Grafana reports no missing panel plugin
 ```
 
+### AC-15: Datasource variables default to the provisioned datasources (covers FR8)
+
+```gherkin
+Given the dashboard is opened on a stack with the provisioned Mimir, Loki, and Tempo datasources
+When the datasource variables for metrics, logs, and traces are inspected
+Then each defaults to its provisioned datasource
+  And every metric panel queries the metrics datasource variable, every log panel the logs datasource variable, and every trace panel the traces datasource variable
+```
+
+### AC-16: The dashboard JSON is reviewable as a text diff (covers NFR3)
+
+```gherkin
+Given the committed dashboard JSON
+When it is inspected for stable key ordering and machine-specific content
+Then keys are ordered consistently
+  And the JSON contains no absolute filesystem path and no volatile per-session identifier
+```
+
 ## Quality Standards Compliance
 
 ### Build & Compilation
@@ -456,7 +476,7 @@ curl -s -u admin:admin "http://localhost:${EDGE_PORT:-24317}/api/search?query=Co
 ./scripts/dashboard.verify.sh
 
 # No identity labels anywhere in the dashboard
-grep -n "user_email\|user_id\|user_account_uuid\|organization_id" stack/grafana/dashboards/agent-observability.json ; test $? -eq 1
+grep -n "user_email\|user_id\|user_account_id\|user_account_uuid\|organization_id" stack/grafana/dashboards/agent-observability.json ; test $? -eq 1
 
 # The metric families the panels rely on actually exist
 curl -sG "http://localhost:${EDGE_PORT:-24317}/prometheus/api/v1/label/__name__/values" \
@@ -518,3 +538,47 @@ Chosen approach: "one provisioned, read-only, template-variable-driven dashboard
 * CR-0003: the pi extension that produces the `pi_*` metric family the dashboard reads.
 * CR-0005: agent-generated deep links, which depend on the fixed dashboard identifier established here.
 * CR-0007: the README screenshot of this dashboard.
+
+<!-- review-summary -->
+## Review Summary (2026-08-02)
+
+Findings by category: drift 5, contradiction 2, coverage 3, scope 1. Unresolved 1.
+
+### Fixes applied
+
+Drift, reconciled against the running stack (EDGE_PORT 24417):
+* Removed the `agent_name` label from the Claude Code label set. It is not present on any live claude_code series.
+* Added `user_account_id` as a user identity label in the Current State, in FR19, in AC-7, and in the no-identity-label verification grep. It is present on live claude_code series and was missing from the exclusion, which is a privacy gap.
+* Corrected the Loki claim. Git provenance labels are on Mimir metric series, not on Loki streams. Reconciled the panel design so Loki and Tempo panels filter by agent through `service_name`, not by repository or branch. Updated the panel-set prose, the variable-scope prose, and Current State.
+* Recorded that Tempo currently holds no agent spans on this stack, and that the trace panel returns an explicit empty result until an agent exports spans.
+* Reframed metric-family population. On this stack four Claude Code families are populated and four populate only after the agent acts; the pi family is absent because pi is not installed. Changed the Current State diagram label from "16 agent metric series" to "eight per agent".
+
+Contradiction:
+* Rewrote FR19 from the malformed "No panel MUST group by..." to "A panel MUST NOT group by...". The original literally asserted the opposite of intent.
+* Aligned Phase 2 and Phase 3 verification prose with FR22 and NFR5. A panel query must execute and return data or an explicit empty result, rather than "never ship a query that has never returned data", which is unsatisfiable for families with no live data on this stack.
+
+Coverage:
+* FR12 (cost breakdown by git repository) traced to no criterion; folded into AC-3.
+* FR8 (datasource template variables) traced to no criterion; added AC-15.
+* NFR3 (reviewable text diff) traced to no criterion; added AC-16 and a matching `assert_json_reviewable` test.
+
+Scope:
+* Removed the CR-0007 scope bleed from the AC-7 header. The criterion now states "covers FR19" only, rather than claiming to cover CR-0007's screenshot requirement.
+
+### Factual claims checked against the running stack
+
+* Claude Code metric family names, four of eight: `session_count`, `token_usage_tokens`, `cost_usage_USD`, `active_time_seconds`. CONFIRMED.
+* Claude Code metric families `lines_of_code`, `code_edit_tool_decision`, `commit_count`, `pull_request_count`. NOT CONFIRMED here; absent until the agent writes, edits, commits, or opens a pull request. Retained.
+* pi metric family. NOT CONFIRMED here; pi is not installed on this stack. Retained as true of the parent stack.
+* Claude Code label set. CONFIRMED with corrections: `agent_name` absent, `user_account_id` present.
+* Token `type` values include `cacheCreation`. CONFIRMED (`cacheCreation`, `cacheRead`, `input`, `output`).
+* `job` value `claude-code`. CONFIRMED. `pi-coding-agent` NOT CONFIRMED here.
+* Loki `service_name` values `claude-code` and `haproxy-edge`. CONFIRMED. `pi-coding-agent` NOT CONFIRMED here.
+* Loki streams carry the four git labels. DISCONFIRMED and corrected; git labels are not present on Loki streams.
+* Loki bodies are readable one-line summaries. CONFIRMED.
+* Tempo span names and `resource.service.name` of `claude-code`. NOT CONFIRMED here; Tempo holds no spans on this stack. Retained as true of the parent stack.
+
+### Unresolved, needing a human decision
+
+1. Loki streams and Tempo spans carry no git provenance labels on this stack, so log and trace panels cannot filter by repository or branch; they filter by agent only. Adding git labels to the Loki and Tempo pipelines is a pipeline change, which this CR places out of scope. Do you accept agent-only filtering for the log and trace panels, or do you want a separate pipeline CR that adds git provenance to Loki and Tempo so those panels can filter by repository and branch?
+<!-- /review-summary -->
