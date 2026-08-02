@@ -194,6 +194,126 @@ default. The package's own defaults win when a flag is unset, so installing the
 extension without sourcing that file exports structural telemetry only, no
 prompt or response text.
 
+## MLflow conversation tracing
+
+MLflow reads a whole agent session back as a conversation. The Grafana side of
+this stack answers aggregate questions well. MLflow answers the one question the
+log queries answer badly: what happened in a single session, turn by turn. A
+session becomes a trace. Each turn and each tool call becomes a span that carries
+its input and its output. The MLflow user interface renders the trace as a
+conversation with token counts, costs, and latencies attached.
+
+### Address and experiments
+
+MLflow is reached through the single published port under the `/mlflow` path
+prefix. With the default port the tracking address is:
+
+```
+http://localhost:24317/mlflow/
+```
+
+If you set `EDGE_PORT`, use your port instead of `24317`.
+
+The stack provisions two experiments the moment MLflow reports healthy, so you do
+not create them. The `claude-code` experiment holds Claude Code conversations.
+The `pi` experiment is reserved for pi. Open either one in the MLflow user
+interface, or list both through the REST API:
+
+```bash
+curl -s "http://localhost:${EDGE_PORT:-24317}/mlflow/api/2.0/mlflow/experiments/search" \
+  -H 'Content-Type: application/json' -d '{"max_results":100}' | jq -r '.experiments[].name'
+```
+
+A non-agent MLflow client, for example the Python `mlflow` client, uses the same
+address as its tracking URI. Set it before you run the client:
+
+```bash
+export MLFLOW_TRACKING_URI=http://localhost:24317/mlflow
+```
+
+### Enable Claude Code conversation tracing
+
+Conversation tracing is off until you turn it on. Starting the stack never turns
+it on. One script turns it on:
+
+```bash
+./scripts/mlflow.autolog.claude.sh
+```
+
+The script names the file it changes and states what gets stored, then asks you
+to confirm before it writes anything. It needs an MLflow client at version 3.14
+or later, because only that release ships the plugin runtime that produces the
+traces. It resolves a client for you, so you do not install Python first when a
+client runner is present. It refuses a client below 3.14 and names the version it
+found. Run `./scripts/mlflow.autolog.claude.sh -h` for its options, including the
+non-interactive `--yes` flag and the `-d DIR` flag.
+
+After you enable tracing, run one Claude Code turn. The trace appears in the
+`claude-code` experiment. To prove the tracking server end to end with no Python
+install, run `./scripts/mlflow.verify.sh`. To prove that a real turn produced a
+conversation trace, run `./scripts/mlflow.tracing.verify.sh --drive`.
+
+### What tracing stores, and how to remove it
+
+Read this part before you enable tracing.
+
+Conversation tracing stores the whole conversation. Every prompt, every response,
+and every tool input and output goes into the trace. That is the purpose of the
+feature, and it is why the controls below matter.
+
+The data stays on your machine. The tracking server writes it to the
+`mlflow-data` named volume. No conversation data leaves the machine. Tracing is
+off until you enable it with the command above.
+
+To turn tracing off, run the same script with the disable flag:
+
+```bash
+./scripts/mlflow.autolog.claude.sh --disable
+```
+
+Disabling stops new traces. It does not remove the conversations already stored.
+A user who enables tracing, changes their mind, and disables it still has every
+earlier conversation on the volume. To delete every conversation already stored
+in the `claude-code` experiment, which is experiment identifier `1`, call the
+tracking server:
+
+```bash
+curl -s "http://localhost:${EDGE_PORT:-24317}/mlflow/api/3.0/mlflow/traces/delete-traces" \
+  -H 'Content-Type: application/json' \
+  -d '{"experiment_id":"1","max_timestamp_millis":9999999999999,"max_traces":1000000}'
+```
+
+The response reports how many traces it deleted. To discard all MLflow data
+together with the rest of the stored telemetry, tear the stack down with `docker
+compose down -v`, which removes every named volume.
+
+### pi conversation tracing is not provided
+
+pi has no conversation-tracing integration in this stack. No supported
+integration exists at the pi command-line level, and building one means changing
+the pi extension's signal contract, which this project freezes for its first
+release. The `pi` experiment exists as a reserved place, and nothing writes
+traces to it.
+
+pi conversation content is available another way. The `@desek/pi-opentelemetry`
+extension exports pi's prompts, responses, and tool content as readable log lines
+into Loki, which the dashboard's conversation stream renders. See the pi
+telemetry extension section above.
+
+### Troubleshooting
+
+* **The enable script refuses the client.** It found an MLflow client below
+  version 3.14. The plugin runtime that produces the traces exists only from
+  3.14. Upgrade the client, or point the script at a newer one, then run the
+  enable step again.
+* **No client resolves.** The script names every way to provide one. Install an
+  MLflow client on your path, or install a Python tool runner such as `uv`, then
+  run the enable step again.
+* **Tracing is enabled but no trace appears.** The plugin runtime writes a trace
+  only when a turn ends. Complete one Claude Code turn, then run
+  `./scripts/mlflow.tracing.verify.sh` to assert that the trace carries the user
+  turn and the assistant turn.
+
 ## Checks
 
 `make ci` is the single command that checks the repository:
@@ -233,6 +353,9 @@ help` to list the individual targets.
 | `scripts/stack.up.sh` | Start the stack and wait until it is ready. |
 | `scripts/stack.verify.sh` | Verify the running stack from the outside. |
 | `scripts/dashboard.verify.sh` | Verify the provisioned dashboard and that every panel executes. |
+| `scripts/mlflow.autolog.claude.sh` | Enable or disable Claude Code conversation tracing against this stack. |
+| `scripts/mlflow.verify.sh` | Verify the MLflow tracking server end to end, with no Python dependency. |
+| `scripts/mlflow.tracing.verify.sh` | Verify that an agent turn produces a conversation trace. |
 | `docs/cr/` | The governance record for this repository. |
 
 ## Service access
