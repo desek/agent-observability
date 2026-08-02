@@ -28,7 +28,7 @@ The metrics and the logs do not substitute for this. Mimir answers what a week c
 
 pi does not need to change for this to work. Its extension system already emits every event the reconstruction needs: the user prompt before the agent loop starts, each turn's assistant message with its token usage, each tool call with its input and its result, and the end of the loop. This repository already publishes one pi extension built on those events, so the pattern, the packaging, and the release path are proven rather than speculative.
 
-The delivery detail that decides the design was settled by reading the running MLflow rather than by assuming it. MLflow 3.14 accepts OpenTelemetry spans directly. A client posts an OpenTelemetry trace export request and the server creates the trace, derives its preview text from reserved span attributes, and groups traces by a session identifier read off the root span. This means the extension does not need an MLflow client, a Python environment, or a bespoke wire format. It needs an OpenTelemetry exporter, which the sibling package already depends on.
+The delivery detail that decides the design was settled by reading the running MLflow rather than by assuming it. MLflow 3.15 accepts OpenTelemetry spans directly. A client posts an OpenTelemetry trace export request and the server creates the trace, derives its preview text from reserved span attributes, and groups traces by a session identifier read off the root span. This means the extension does not need an MLflow client, a Python environment, or a bespoke wire format. It needs an OpenTelemetry exporter, which the sibling package already depends on.
 
 Conversation content is the most sensitive data this project touches, and this change is the one that writes it. Every design choice below that looks conservative is there for that reason: the extension records nothing until a switch is set, it never invents a destination, and turning it off is one command that stops the export.
 
@@ -37,13 +37,13 @@ Conversation content is the most sensitive data this project touches, and this c
 * The `pi` experiment is provisioned and permanently empty, so the stack advertises a capability to pi users that it does not deliver.
 * Claude Code reaches MLflow through a plugin runtime pi does not have, so the existing enable path cannot be pointed at pi.
 * pi's extension system already emits the prompt, the turns, the token usage, and the tool calls, so the reconstruction needs no change to pi.
-* MLflow 3.14 ingests OpenTelemetry spans directly, so no MLflow client and no Python environment is needed on the user's machine.
+* MLflow 3.15 ingests OpenTelemetry spans directly, so no MLflow client and no Python environment is needed on the user's machine.
 * MLflow's ingest endpoint is served outside its static prefix, on a path the edge proxy already gives to Alloy, so the route must be added deliberately rather than discovered by a failing export.
 * Conversation content demands an explicit opt-in, a stated disclosure, and a reversal that works.
 
 ## Current State
 
-The stack runs MLflow 3.14.0 behind the single edge port under the `/mlflow` prefix. Provisioning creates two agent experiments at stack start: `claude-code` with id `1` and `pi` with id `2`. A script enables Claude Code conversation tracing through the MLflow client's own command, and a verifier asserts that a trace in an agent experiment carries both the user turn and the assistant turn.
+The stack runs MLflow 3.15.0 behind the single edge port under the `/mlflow` prefix. Provisioning creates two agent experiments at stack start: `claude-code` with id `1` and `pi` with id `2`. A script enables Claude Code conversation tracing through the MLflow client's own command, and a verifier asserts that a trace in an agent experiment carries both the user turn and the assistant turn.
 
 This repository also publishes `@desek/pi-mlflow-tracing`'s sibling, `@desek/pi-opentelemetry`, a pi extension that exports metrics, log events, and OpenTelemetry traces over OTLP to the Alloy collector. It reads its configuration from the environment, derives git provenance, probes collector health before enabling itself by default, and wraps every handler so a telemetry fault cannot break the agent loop.
 
@@ -66,9 +66,11 @@ flowchart TD
     EDGE -.->|"no route to the OpenTelemetry ingest endpoint"| MLF
 ```
 
-### What MLflow 3.14 actually provides, verified 2026-08-02
+### What MLflow actually provides, verified 2026-08-02
 
 Verified by reading the installed server inside the running container, and by one probe request that was deleted afterwards.
+
+> Note on the pin. These facts were read on 2026-08-02 from the server then pinned at `v3.14.0`. Later the same day the compose pin advanced to `ghcr.io/mlflow/mlflow:v3.15.0` (commit `5e9251d`), which is the version this CR now targets. The ingest contract below (the `/v1/traces` path, the `x-mlflow-experiment-id` header, and the reserved span attributes) **MUST** be re-confirmed against the currently pinned `v3.15.0` in Phase 1 before any export code depends on it; Risk 1 carries the same requirement.
 
 * The server exposes an OpenTelemetry trace ingest endpoint at the path `/v1/traces`. It accepts `application/x-protobuf` and `application/json`, and it requires the header `x-mlflow-experiment-id`. A request with no spans is rejected with 400, which makes a wrong payload loud rather than silent.
 * That endpoint is **not** served under the `--static-prefix=/mlflow` prefix. A request to `/mlflow/v1/traces` returns 404 and a request to `/v1/traces` inside the container returns the endpoint.
@@ -220,7 +222,7 @@ The project's central claim, that this stack serves coding agents rather than on
 
 ### Phase 1: The route
 
-Add the edge-proxy route to the MLflow ingest endpoint and prove it, so later phases export to something that exists. Validate the proxy configuration and confirm that the unprefixed OpenTelemetry paths still reach Alloy.
+Re-confirm the MLflow ingest contract (the `/v1/traces` path, the `x-mlflow-experiment-id` header, and the reserved span attributes) against the currently pinned `v3.15.0`, since the facts in Current State were first read against `v3.14.0`. Then add the edge-proxy route to the MLflow ingest endpoint and prove it, so later phases export to something that exists. Validate the proxy configuration and confirm that the unprefixed OpenTelemetry paths still reach Alloy.
 
 ### Phase 2: Package skeleton
 
@@ -276,12 +278,14 @@ flowchart LR
 | `packages/pi-mlflow-tracing/src/trace.builder.test.ts` | `prompt and response land in the reserved attributes` | Root span inputs and outputs are JSON-encoded reserved attributes | Prompt and final assistant text | `mlflow.spanInputs` and `mlflow.spanOutputs` set |
 | `packages/pi-mlflow-tracing/src/trace.builder.test.ts` | `token usage lands on the turn span` | Turn token counts map to the reserved usage attribute | Turn message with usage | `mlflow.chat.tokenUsage` populated |
 | `packages/pi-mlflow-tracing/src/trace.builder.test.ts` | `a tool call parents to its turn` | Tool spans nest under the turn that issued them | Interleaved tool events | Tool span parent is the turn span |
+| `packages/pi-mlflow-tracing/src/trace.builder.test.ts` | `the root span carries the session id` | The root span records pi's session identity so a session's traces group together | Two loops in one session | Both roots carry the same `session.id` attribute |
 | `packages/pi-mlflow-tracing/src/trace.builder.test.ts` | `content is released after export` | No conversation content is retained once the trace is exported | Completed loop | Builder state empty |
 | `packages/pi-mlflow-tracing/src/mlflow.exporter.test.ts` | `sends the experiment header` | Every export carries the experiment identifier header | Configured experiment id | Header present on the request |
 | `packages/pi-mlflow-tracing/src/mlflow.exporter.test.ts` | `sends the configured extra headers` | User-supplied headers accompany the experiment header | One extra header | Both headers present |
 | `packages/pi-mlflow-tracing/src/mlflow.experiment.test.ts` | `resolves the experiment by name` | The name resolves to an id through the tracking API | Experiment name `pi` | Resolved id |
 | `packages/pi-mlflow-tracing/src/mlflow.experiment.test.ts` | `refuses to export on an unknown name` | An unresolvable name disables export rather than guessing an id | Name that does not exist | Export disabled, no request sent |
 | `packages/pi-mlflow-tracing/src/mlflow.exporter.test.ts` | `silent when the server is absent` | An unreachable server produces no error output and no retry storm | Refused connection | No throw, no repeated attempts |
+| `packages/pi-mlflow-tracing/src/mlflow.exporter.test.ts` | `flushes pending exports on shutdown` | A pending export is flushed when the session shuts down so the last conversation is not lost | Completed loop then shutdown | Exporter flush invoked before the process exits |
 | `packages/pi-mlflow-tracing/src/package.manifest.test.ts` | `manifest is publishable` | License, keyword, files list, and publish access are correct | The manifest | All fields present |
 
 ### Tests to Modify
@@ -296,6 +300,16 @@ flowchart LR
 | Test File | Test Name | Reason for Removal |
 |-----------|-----------|-------------------|
 | Not applicable | Not applicable | This change is additive; no existing test covers behaviour that this change removes |
+
+### Coverage beyond the package unit tests
+
+Some acceptance criteria are proven by scripts and the pipeline rather than by a package unit test, and are listed here so no criterion is left without a verification path:
+
+* AC-1 (the route is reachable and Alloy still receives the unprefixed paths) is verified by the proxy-configuration validation in `make ci` and the readiness checks in `scripts/stack.verify.sh`.
+* AC-12 and AC-13 (the enable script discloses before recording, and the disable command reverses the change) are verified by the new enable and disable script and confirmed by the pi drive mode of `scripts/mlflow.tracing.verify.sh`.
+* AC-14 (the pi path end to end) is verified by the pi drive mode added to `scripts/mlflow.tracing.verify.sh`, listed under Tests to Modify.
+* AC-10 (this change publishes nothing) is verified by inspecting the change for any publish workflow and by `package.manifest.test.ts` asserting the manifest carries publish access without any release trigger in this change.
+* AC-19 (failures are actionable) is verified by the message assertions embedded in the config and exporter tests above (the malformed-endpoint and unknown-name cases) together with the script-level disclosures.
 
 ## Acceptance Criteria
 
@@ -368,7 +382,7 @@ Then the export goes to the configured endpoint and not to the default one
   And the trace lands in the configured experiment
 ```
 
-### AC-8: A destination off this machine is stated (covers FR12)
+### AC-8: A destination off this machine is stated (covers FR12, NFR5)
 
 ```gherkin
 Given the configured endpoint names a host that is not a loopback address
@@ -529,7 +543,7 @@ scripts/mlflow.tracing.verify.sh --drive-pi
 
 **Likelihood:** medium
 **Impact:** high
-**Mitigation:** The server version is pinned in the compose file, and the contract was read from that pinned version. The verifier asserts a real trace end to end, so an upgrade that breaks the contract fails the pipeline rather than silently storing empty traces.
+**Mitigation:** The server version is pinned in the compose file at `v3.15.0`, and the contract is re-confirmed against that pin in Phase 1 (the facts in Current State were first read against `v3.14.0` before the pin advanced). The verifier asserts a real trace end to end, so an upgrade that breaks the contract fails the pipeline rather than silently storing empty traces.
 
 ### Risk 2: The new route weakens the single-port invariant or steals traffic from Alloy
 
@@ -569,7 +583,7 @@ scripts/mlflow.tracing.verify.sh --drive-pi
 
 ## Dependencies
 
-* MLflow 3.14.0 as pinned in the compose file, for the OpenTelemetry ingest endpoint.
+* MLflow 3.15.0 as pinned in the compose file, for the OpenTelemetry ingest endpoint.
 * The repository's release automation, specified by CR-0009. Publication of this package is blocked until that automation exists.
 * The experiment provisioning that creates the `pi` experiment at stack start.
 * pi's public extension interface, at the version pinned as a development dependency.
@@ -592,4 +606,40 @@ Chosen approach: "a new pi extension package that exports OpenTelemetry spans to
 
 ## More Information
 
-The MLflow facts in this document were read on 2026-08-02 from the installed server inside the running container at the pinned version, and confirmed by one probe export that was deleted afterwards. The pi facts were read from a local clone of the pi repository, from the extension interface types and the extension documentation, rather than from any external description of them.
+The MLflow facts in this document were read on 2026-08-02 from the installed server inside the running container, at the version pinned that day (`v3.14.0`), and confirmed by one probe export that was deleted afterwards. The compose pin has since advanced to `v3.15.0`, so Phase 1 re-confirms the ingest contract against the current pin.
+
+<!-- review-summary -->
+## Review Summary (cr-reviewer, 2026-08-02)
+
+Reviewed against the codebase at the current HEAD and the conventions in CLAUDE.md and the global agent instructions.
+
+### Findings by category
+
+* **Drift: 1.** The CR was authored against MLflow `v3.14.0`, but `compose.yaml` now pins `ghcr.io/mlflow/mlflow:v3.15.0` (bumped by commit `5e9251d`, later on the same authoring date, under CR-0007-iterate). Every `3.14`/`3.14.0` reference in the CR was stale.
+* **Requirement to AC coverage: 1.** NFR5 (conversation content must not leave the machine unless a non-loopback destination is configured) was exercised by AC-6 and AC-8 but cited by no AC's `covers` annotation.
+* **AC to Test coverage: 2 (unit) + 5 (unlisted verification path).** AC-4 (session grouping / FR5) and AC-16 (flush on shutdown / NFR4) had no dedicated Test Strategy row. AC-1, AC-10, AC-12, AC-13, and AC-19 were verified only by scripts or `make ci` with no note tying them to a verification path.
+* **Contradictions: 0.** Every AC is consistent with its Functional Requirements and the Implementation Approach.
+* **Ambiguity: 0.** Requirements use MUST / MUST NOT throughout; no should/may/appropriate/as-needed language found.
+* **Scope consistency: 0 issues.** Affected Components match the paths referenced across the phases; `stack/haproxy/haproxy.cfg`, the sibling package, and all four cited docs exist at their cited paths.
+* **Diagram accuracy: 0 issues.** All four Mermaid diagrams match the described current and proposed states, the span shape matches FR4-FR7, and label text is Mermaid-safe.
+
+### Fixes applied
+
+* Updated all MLflow version references from `3.14`/`3.14.0` to `3.15`/`3.15.0` (Motivation, Change Drivers, Current State, Dependencies).
+* Added a pin note to the verified-facts section, Phase 1, Risk 1, and More Information: the contract was verified against `v3.14.0` and MUST be re-confirmed against the now-pinned `v3.15.0` in Phase 1 before export code depends on it.
+* Added `NFR5` to the `covers` annotation of AC-8.
+* Added two Test Strategy rows: `the root span carries the session id` (AC-4/FR5) and `flushes pending exports on shutdown` (AC-16/NFR4).
+* Added a "Coverage beyond the package unit tests" subsection tying AC-1, AC-10, AC-12, AC-13, and AC-19 to their script/CI verification paths.
+
+### Verified against current codebase (no change needed)
+
+* Sibling `@desek/pi-opentelemetry` manifest confirms the conventions FR1/FR22 require: Apache-2.0, `pi-package` keyword, repository/homepage/bugs fields, explicit files list, `publishConfig.access: public`, and the Node built-in test runner (`node --experimental-strip-types --test`).
+* `haproxy.cfg` confirms the Tempo prefix-rewrite pattern FR15 follows, that `/v1/traces` currently routes to Alloy, and that MLflow is served under the `/mlflow` static prefix.
+* Experiment provisioning confirms `claude-code` and `pi` experiments are created at stack start.
+* `scripts/mlflow.tracing.verify.sh` confirms the current claude-only drive mode and a configurable experiment name, as Current State describes.
+* CR-0009 (release automation), CR-0004, CR-0003, and CR-0001 all exist at their cited paths.
+
+### Unresolved (require human decision)
+
+None.
+<!-- /review-summary --> The pi facts were read from a local clone of the pi repository, from the extension interface types and the extension documentation, rather than from any external description of them.
