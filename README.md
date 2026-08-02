@@ -51,6 +51,48 @@ flowchart TD
     VERIFY["scripts/stack.verify.sh"] -->|"asserts readiness and single port"| HAP
 ```
 
+## Install
+
+The recommended way to install is to ask your own coding agent to do it. After
+you clone this repository, point your agent at the installation instruction. The
+agent checks the prerequisites, offers to start the stack and asks first,
+verifies the stack, shows you a plan of every change, asks once, configures your
+agent, and then proves the result by running one turn and confirming the data
+arrived. It edits only the files in the plan, backs up each settings file before
+it writes, and never turns on the recording of your prompts unless you choose it.
+
+Run the entry point for your agent:
+
+* **Claude Code:** run the slash command `/observability-install`.
+* **pi:** run the prompt template `/observability-install`.
+* **Any other capable agent:** paste this sentence to it:
+
+  > Read `skills/observability-install/SKILL.md` in this repository and follow it
+  > to install the observability stack and wire this agent into it, asking me
+  > before any change.
+
+The instruction itself lives in one readable file,
+[`skills/observability-install/SKILL.md`](skills/observability-install/SKILL.md).
+Open it to see exactly what the agent will do, what it will ask, and what it will
+not do, before you run it.
+
+### Uninstall
+
+To reverse the install, run `/observability-uninstall` in Claude Code or pi, or
+paste the equivalent sentence naming the "Uninstall" section of the same skill.
+The agent removes only the keys the install added, restores any value it
+replaced, and confirms that your agent no longer exports.
+
+### The manual path
+
+If you have no coding agent, or a policy against letting one change your
+configuration, every step above has a manual equivalent. The sections that
+follow (**Prerequisites**, **Start**, **Verify**, **pi telemetry extension**, and
+**MLflow conversation tracing**) are that manual path, and they stay supported.
+Start the stack with `docker compose up -d`, verify it with
+`./scripts/stack.verify.sh`, and set the telemetry keys by hand as those sections
+describe.
+
 ## Prerequisites
 
 Docker is the only prerequisite. You need Docker with the Docker Compose v2
