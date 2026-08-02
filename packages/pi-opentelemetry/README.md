@@ -1,66 +1,173 @@
 <!--
-@agents-index: Operator and reviewer documentation for the in-repo pi-opentelemetry pi
-extension — the complete emitted signal inventory (metrics, events, spans), the
-configuration variables that govern it, and the headless verification recipe used
-to prove Claude Code telemetry parity against the local Grafana stack.
+@agents-index: Public README for @desek/pi-opentelemetry, the pi coding-agent
+OpenTelemetry extension. Documents what it emits, how to install and enable it,
+every configuration variable and its source-verified default, the operational
+contract, a verification recipe, and a troubleshooting list for a reader who has
+never seen this repository.
 -->
 
-# pi pi-opentelemetry extension
+# @desek/pi-opentelemetry
 
-An in-repo [pi](https://github.com/earendil-works/pi) extension that instruments
-pi's lifecycle events and emits all three OpenTelemetry signals — metrics, log
-events, and traces — with names and attributes at parity with Claude Code's
-built-in telemetry, exported over **OTLP gRPC to the local HAProxy edge proxy on
-`localhost:24317`** (the single-port frontend that fans out to the Grafana Alloy
-receiver — the same transport and endpoint Claude Code uses).
+An OpenTelemetry extension for the [pi](https://github.com/earendil-works/pi)
+coding agent. It instruments pi's lifecycle and exports all three OpenTelemetry
+signals, metrics, log events, and traces, over OTLP gRPC to any OpenTelemetry
+collector. The signal names and attributes match Claude Code's built-in
+telemetry, with the `claude_code.` prefix replaced by `pi.`, so pi and Claude
+Code stay distinguishable in one backend while remaining comparable.
 
-pi-namespaced signal names drop Claude Code's `claude_code.` prefix in favour of
-`pi.` so the two services stay distinguishable in one backend while preserving
-structure and attributes. Both services share the `service.name` dimension
-(`pi-coding-agent` vs `claude-code`) so they are comparable yet separable.
+The extension is safe to install anywhere. It emits nothing until you enable it,
+it stays silent when no collector is reachable, and a telemetry fault can never
+crash, block, or slow the agent. See [Operational contract](#operational-contract).
 
-## How it is loaded
-
-pi is wired to this extension through the `packages` array in `.pi/settings.json`,
-which references this package as a local source:
-
-```json
-"packages": ["npm:pi-subagents", "npm:pi-mcp-adapter", "./packages/pi-opentelemetry"]
-```
-
-pi resolves local `packages` paths relative to the project config dir (`.pi/`). pi
-then reads this package's `package.json` `pi.extensions`
-manifest (`["./src/index.ts"]`) to discover the entry module. A path under the
-top-level `extensions` key is likewise resolved against `.pi/` and only toggles the
-enabled state of auto-discovered `.pi/extensions/*` entries, so it does not load a
-package living at the repo root — use the `packages` reference above.
-
-The third-party `npm:@the-agency/pi-observability` package (one span per turn,
-OTLP HTTP 4318) has been removed; the existing `npm:pi-subagents` and
-`npm:pi-mcp-adapter` packages are preserved.
-
-Runtime dependencies (the OpenTelemetry JS SDK plus the three OTLP gRPC exporters)
-are declared and pinned in `package.json` / `package-lock.json`. Run
-`npm install` inside `packages/pi-opentelemetry/` so `node_modules/` is present;
-that directory is gitignored. Unit tests run with `npm test`
-(`node --experimental-strip-types --test 'src/*.test.ts'`).
-
-## Master switch
-
-The extension is a hard no-op — it initializes no exporter and emits no signal —
-unless `PI_OTEL_ENABLE` is set to a truthy value. This mirrors Claude Code's
-`CLAUDE_CODE_ENABLE_TELEMETRY`.
+## Install
 
 ```bash
-set -a && . observability/pi-otel.env && set +a   # OTLP gRPC via proxy :24317, service name
+pi install npm:@desek/pi-opentelemetry
+```
+
+This registers the extension with pi. It stays dormant until you enable it.
+
+### Peer dependency
+
+The extension declares `@opentelemetry/api` as a peer dependency (range
+`^1.9.0`). pi and most host environments already provide it. If your project
+pins its own copy of `@opentelemetry/api`, keep it on a compatible version. Two
+different copies of `@opentelemetry/api` in one process break instrumentation
+registration silently, which looks like a broken collector rather than a
+dependency clash. See [Troubleshooting](#troubleshooting).
+
+## Enable
+
+The extension is a hard no-op unless one of two conditions is met:
+
+1. `PI_OTEL_ENABLE` is set to a truthy value (the explicit master switch), or
+2. `PI_OTEL_ENABLE` is unset and the extension finds a target: either
+   `OTEL_EXPORTER_OTLP_ENDPOINT` is set, or a local collector answers a health
+   probe. This is the dynamic default. It lets a machine that runs a collector
+   export with no configuration, while a machine that runs no collector stays
+   silent.
+
+The simplest explicit setup, exporting to a collector on the standard OTLP gRPC
+port:
+
+```bash
 export PI_OTEL_ENABLE=1
 pi -p "say hi"
 ```
 
-The repository `.envrc` (direnv) additionally exports `OTEL_RESOURCE_ATTRIBUTES`
-with git-provenance labels (`git.org`, `git.repo`, `git.branch`, `git.path`); run
-`direnv allow` so the extension stamps pi telemetry with the same provenance that
-Loki and Mimir promote for Claude Code.
+By default the extension exports to `http://localhost:4317`, the standard OTLP
+gRPC receiver address. A plain OpenTelemetry Collector, or Grafana Alloy with
+its default `otelcol.receiver.otlp`, listens there, so no endpoint configuration
+is needed for the common case.
+
+### If you run the agent-observability edge-proxy stack
+
+The companion observability stack does not publish the standard OTLP ports. It
+fronts every backend behind a single edge port (default `24317`). A collector
+behind a non-standard address is not found by the default endpoint or the health
+probe, so installing the extension alongside that stack exports nothing until
+you point it at the edge port:
+
+```bash
+export PI_OTEL_ENABLE=1
+export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:24317
+pi -p "say hi"
+```
+
+If you see no telemetry with the stack running, this is the first thing to
+check. See [Troubleshooting](#troubleshooting).
+
+## Operational contract
+
+These four guarantees are what let you trust the extension in every pi session.
+Each is enforced in `src/index.ts` and `src/config.env.ts`.
+
+1. **Off by default.** The extension emits no signal and constructs no exporter
+   unless its master switch `PI_OTEL_ENABLE` is truthy, or the health-gated
+   dynamic default enables it.
+2. **Silent when the collector is absent.** With neither the switch nor an
+   endpoint set, the extension probes the collector and stays silent when the
+   collector does not answer, so installing it on a machine without a stack costs
+   nothing.
+3. **Content is opt-in.** Every content-logging flag defaults to off. Prompts,
+   responses, tool content, and raw request and response bodies are never
+   exported unless you set the matching flag explicitly.
+4. **It never breaks the agent.** An export failure, an unreachable collector,
+   or a malformed configuration is swallowed. No telemetry fault raises into the
+   agent, blocks a turn, or changes agent behaviour.
+
+## Configuration variables
+
+Every variable the extension reads, with its default and effect. Defaults are
+taken from `src/config.env.ts` and `src/health.alloy.ts`.
+
+### Switch and endpoint
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `PI_OTEL_ENABLE` | unset | Master switch. Truthy enables export, a false value (`0`, `false`, `no`, `off`, empty) disables it, unset defers to the dynamic default. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | Shared OTLP endpoint for all signals. When set while `PI_OTEL_ENABLE` is unset, it also enables export without a health probe. |
+| `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | Shared OTLP protocol for all signals. |
+| `OTEL_EXPORTER_OTLP_HEADERS` | none | Comma-separated `key=value` headers applied to every exporter. |
+
+### Per-signal exporter selection and overrides
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `OTEL_METRICS_EXPORTER` / `OTEL_LOGS_EXPORTER` / `OTEL_TRACES_EXPORTER` | `otlp` | `otlp` selects the OTLP gRPC exporter for that signal; `none` disables that signal. Any value other than `none` is treated as `otlp`. |
+| `OTEL_EXPORTER_OTLP_{METRICS,LOGS,TRACES}_ENDPOINT` | shared endpoint | Per-signal endpoint override. |
+| `OTEL_EXPORTER_OTLP_{METRICS,LOGS,TRACES}_PROTOCOL` | shared protocol | Per-signal protocol override. |
+| `OTEL_METRIC_EXPORT_INTERVAL` | SDK default | Metric reader export interval, in milliseconds. |
+| `OTEL_LOGS_EXPORT_INTERVAL` | SDK default | Log processor export interval, in milliseconds. |
+| `OTEL_TRACES_EXPORT_INTERVAL` | SDK default | Span processor export interval, in milliseconds. |
+
+### Resource identity
+
+| Variable | Default | Effect |
+|----------|---------|--------|
+| `OTEL_SERVICE_NAME` | `pi-coding-agent` | `service.name` on the OpenTelemetry Resource. |
+| `OTEL_RESOURCE_ATTRIBUTES` | none | Comma-separated `key=value` Resource attributes. The extension also derives git provenance (`git.org`, `git.repo`, `git.branch`, `git.path`) from the launch directory; values you set here win over the derived ones. |
+
+### Content logging (default off)
+
+Each flag is off unless set to a truthy value. See [Content logging and
+privacy](#content-logging-and-privacy) for exactly what each records.
+
+| Variable | Records |
+|----------|---------|
+| `OTEL_LOG_USER_PROMPTS` | The full user prompt text on `pi.user_prompt` events and interaction spans. |
+| `OTEL_LOG_ASSISTANT_RESPONSES` | The full assistant response text on `pi.assistant_response` events. |
+| `OTEL_LOG_TOOL_DETAILS` | Tool input and parameters on `pi.tool_result` events. |
+| `OTEL_LOG_TOOL_CONTENT` | Tool input and output as span events on tool spans. |
+| `OTEL_LOG_RAW_API_BODIES` | Raw provider request and response bodies on `pi.api_request_body` and `pi.api_response_body` events. |
+
+### Metric-attribute cardinality (default off)
+
+Each flag is off unless set to a truthy value. Enabling one adds a
+high-cardinality attribute to metric series, which increases storage cost in the
+backend.
+
+| Variable | Adds |
+|----------|------|
+| `OTEL_METRICS_INCLUDE_SESSION_ID` | The session id as a metric attribute. |
+| `OTEL_METRICS_INCLUDE_VERSION` | The pi version as a metric attribute. |
+| `OTEL_METRICS_INCLUDE_ACCOUNT_UUID` | The account uuid as a metric attribute. |
+| `OTEL_METRICS_INCLUDE_ENTRYPOINT` | The entrypoint as a metric attribute. |
+| `OTEL_METRICS_INCLUDE_RESOURCE_ATTRIBUTES` | Resource attributes as metric attributes. |
+
+## Content logging and privacy
+
+Every content-logging flag is off by default, so out of the box no prompt,
+response, tool content, or raw body ever leaves the process. When you enable a
+flag, the content is exported over OTLP to whatever collector you configured and
+is stored wherever that collector sends it. If your collector writes to a local
+log store such as Loki, that content lands on disk on the machine that runs the
+store. Enable these flags only when you understand where the content will be
+kept and who can read it.
+
+Non-content fields are always present when export is on: prompt length, response
+length, model, token counts, cost, durations, and outcome flags. These carry no
+prompt or response text.
 
 ## Emitted signal inventory
 
@@ -73,17 +180,13 @@ Loki and Mimir promote for Claude Code.
 | `pi.cost.usage` | counter (USD) | `model` | `message_end` |
 | `pi.lines_of_code.count` | counter | `type` (`added`/`removed`) | `tool_result` (edit/write) |
 | `pi.code_edit_tool.decision` | counter | `decision`, `tool_name`, `language` | `tool_call`, `tool_result` |
-| `pi.commit.count` | counter | — | `tool_result` (bash `git commit` heuristic) |
-| `pi.pull_request.count` | counter | — | `tool_result` (bash `gh pr create` heuristic) |
-| `pi.active_time.total` | counter (seconds) | — | turn/agent timing |
+| `pi.commit.count` | counter | none | `tool_result` (bash `git commit` heuristic) |
+| `pi.pull_request.count` | counter | none | `tool_result` (bash `gh pr create` heuristic) |
+| `pi.active_time.total` | counter (seconds) | none | turn/agent timing |
 
-In Mimir the OTel dot-names are Prometheus-normalized (dots to underscores, a
-`_total` suffix on monotonic counters), e.g. `pi_session_count_total`,
-`pi_token_usage_tokens_total`, `pi_cost_usage_total`.
-
-Metric-attribute cardinality is gated (default off when the variable is unset) by
-`OTEL_METRICS_INCLUDE_SESSION_ID`, `_VERSION`, `_ACCOUNT_UUID`, `_ENTRYPOINT`, and
-`_RESOURCE_ATTRIBUTES`.
+A Prometheus-compatible backend normalizes the OTel dot-names (dots to
+underscores, a `_total` suffix on monotonic counters), for example
+`pi_session_count_total`, `pi_token_usage_tokens_total`, `pi_cost_usage_total`.
 
 ### Log events (`pi.` namespace)
 
@@ -101,11 +204,7 @@ Metric-attribute cardinality is gated (default off when the variable is unset) b
 | `pi.compaction` | `trigger`, `success`, `pre_tokens`, `post_tokens` | `session_compact` |
 
 All events carry `service.name = pi-coding-agent`. Content-bearing fields are
-omitted unless their opt-in flag is set. `observability/alloy/config.alloy`
-rewrites these `pi.<event>` bodies into human-readable one-line summaries in Loki
-(e.g. `[api_request] model=... in=... out=...`) at parity with the
-`claude_code.*` transform, while all original attributes remain queryable as
-structured metadata.
+omitted unless their opt-in flag is set.
 
 ### Spans (`pi.` namespace)
 
@@ -117,70 +216,82 @@ structured metadata.
 | `pi.tool.execution` | `pi.tool` | execution portion of a tool call |
 
 Spans carry `gen_ai.*` and `pi.*` attributes. The interaction prompt text is
-gated by `OTEL_LOG_USER_PROMPTS`; tool input/output span events by
+gated by `OTEL_LOG_USER_PROMPTS`; tool input and output span events by
 `OTEL_LOG_TOOL_CONTENT`.
 
-## Configuration variables
+## Verify it is exporting
 
-| Variable | Behaviour |
-|----------|-----------|
-| `PI_OTEL_ENABLE` | Master switch; extension no-ops unless truthy |
-| `OTEL_METRICS_EXPORTER` / `OTEL_LOGS_EXPORTER` / `OTEL_TRACES_EXPORTER` | `otlp` (default) selects the OTLP gRPC exporter; `none` disables that signal |
-| `OTEL_EXPORTER_OTLP_PROTOCOL` / `OTEL_EXPORTER_OTLP_ENDPOINT` / `OTEL_EXPORTER_OTLP_HEADERS` | Honoured; default `grpc` and `http://localhost:24317` (the HAProxy edge proxy) |
-| `OTEL_EXPORTER_OTLP_{METRICS,LOGS,TRACES}_{ENDPOINT,PROTOCOL}` | Per-signal overrides |
-| `OTEL_METRIC_EXPORT_INTERVAL` / `OTEL_LOGS_EXPORT_INTERVAL` / `OTEL_TRACES_EXPORT_INTERVAL` | Export intervals on the respective reader/processor |
-| `OTEL_SERVICE_NAME` / `OTEL_RESOURCE_ATTRIBUTES` | Applied to the OTel `Resource` (service name default `pi-coding-agent`) |
-| `OTEL_LOG_USER_PROMPTS` / `OTEL_LOG_ASSISTANT_RESPONSES` / `OTEL_LOG_TOOL_DETAILS` / `OTEL_LOG_TOOL_CONTENT` / `OTEL_LOG_RAW_API_BODIES` | Content gates (default off when unset) |
-| `OTEL_METRICS_INCLUDE_SESSION_ID` / `_VERSION` / `_ACCOUNT_UUID` / `_ENTRYPOINT` / `_RESOURCE_ATTRIBUTES` | Metric-attribute cardinality gates (default off when unset) |
+Export is batched, so allow 15 to 30 seconds after the process exits before
+querying. The extension force-flushes at the end of every agent loop and again
+on session shutdown, so a headless one-shot delivers its signals reliably.
 
-## Headless verification (parity against Claude Code)
-
-OTLP export is batched, so allow 15 to 30 seconds after the process exits before
-querying (the extension also flushes on `session_shutdown`). The backend query
-APIs below are reached through the single HAProxy port `http://localhost:24317`
-: Mimir under `/prometheus`, Loki under `/loki`, Tempo under `/tempo`
-(the `/tempo` prefix is stripped by the proxy). Confirm the routing against
-`observability/haproxy/haproxy.cfg`.
-
-Drive pi once with the extension loaded and telemetry enabled:
+Drive one pi turn with telemetry enabled:
 
 ```bash
-set -a && . observability/pi-otel.env && set +a
 export PI_OTEL_ENABLE=1
+# Set OTEL_EXPORTER_OTLP_ENDPOINT here if your collector is not on localhost:4317.
 pi -p "Print the word telemetry and nothing else."
 ```
 
-**Metrics in Mimir:**
+Then query your backend. The examples below assume a Grafana LGTM stack; adjust
+the base URLs to your own collector's query APIs.
+
+Metrics (Prometheus-compatible API):
 
 ```bash
-curl -sG http://localhost:24317/prometheus/api/v1/query \
+curl -sG http://localhost:4317/prometheus/api/v1/query \
   --data-urlencode 'query=pi_token_usage_tokens_total' | jq '.data.result'
 ```
 
-**Events/logs in Loki:**
+Log events (Loki):
 
 ```bash
-curl -sG http://localhost:24317/loki/api/v1/query_range \
+curl -sG http://localhost:4317/loki/api/v1/query_range \
   --data-urlencode 'query={service_name="pi-coding-agent"}' | jq '.data.result | length'
 ```
 
-**Traces in Tempo:**
+Traces (Tempo):
 
 ```bash
-curl -sG http://localhost:24317/tempo/api/search \
+curl -sG http://localhost:4317/tempo/api/search \
   --data-urlencode 'q={ resource.service.name = "pi-coding-agent" }' | jq '.traces | length'
 ```
 
-Then drive Claude Code the same way and diff the two inventories service by
-service against the Parity Matrix:
+A non-empty result for each signal confirms the extension is exporting. If the
+query ports differ from the OTLP ingest port on your stack, use the query ports
+your backend documents.
 
-```bash
-claude -p "Print the word telemetry and nothing else."
-```
+## Troubleshooting
 
-Compare `pi_*` counters against their `claude_code_*` counterparts in Mimir,
-`{service_name="pi-coding-agent"}` against `{service_name="claude-code"}` in Loki,
-and `{ resource.service.name = "pi-coding-agent" }` against the claude-code
-equivalent in Tempo. Every non-N/A Parity Matrix signal should have an observable
-pi equivalent, including the git-provenance labels (`git_branch`, `git_repo`, …)
-the extension stamps via `OTEL_RESOURCE_ATTRIBUTES`.
+The extension is installed and enabled but I see nothing.
+
+- **The collector is not on the default endpoint.** The default is
+  `http://localhost:4317`. If your collector listens elsewhere, set
+  `OTEL_EXPORTER_OTLP_ENDPOINT`. This is the most common cause when running the
+  agent-observability edge-proxy stack, which uses a single edge port (default
+  `24317`) rather than the standard OTLP ports. Set
+  `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:24317`.
+- **The dynamic default kept it off.** With `PI_OTEL_ENABLE` unset and no
+  endpoint set, the extension probes a local collector at
+  `http://localhost:12345/-/healthy` (Grafana Alloy's default health route) and
+  stays off when nothing answers. Set `PI_OTEL_ENABLE=1` to force it on
+  regardless of the probe.
+- **A duplicate `@opentelemetry/api` in the process.** If two different copies
+  of `@opentelemetry/api` are resolved in one process, instrumentation registers
+  against one copy and the extension emits from another, so nothing arrives and
+  no error is raised. This looks like a broken stack but is a dependency clash.
+  Deduplicate the package (for example `npm dedupe`, or align your project's
+  pinned version to the peer range `^1.9.0`) so a single copy is loaded.
+- **A signal is disabled.** Check that `OTEL_METRICS_EXPORTER`,
+  `OTEL_LOGS_EXPORTER`, or `OTEL_TRACES_EXPORTER` is not set to `none`.
+- **You are querying too soon.** Export is batched. Wait 15 to 30 seconds after
+  the process exits before querying.
+- **You expected prompt or response text and see none.** Content logging is
+  opt-in. Set the matching flag from
+  [Content logging](#content-logging-and-privacy). The structural fields
+  (lengths, models, counts, costs) are always present, so their presence with
+  absent text means the content flag is simply off.
+
+## License
+
+Apache-2.0.
