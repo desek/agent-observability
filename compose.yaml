@@ -242,3 +242,43 @@ services:
       timeout: 5s
       retries: 12
       start_period: 30s
+
+  # MLflow experiment provisioning: a one-shot step that creates the agent
+  # experiments (claude-code and pi) the moment the tracking server is healthy,
+  # so a user who opens MLflow right after `docker compose up -d` sees named
+  # experiments rather than a blank page. It reuses the pinned mlflow image (no
+  # new dependency; that image ships bash and python3, which the script uses for
+  # HTTP and JSON) and calls the tracking server's own REST interface over the
+  # otel network at mlflow:5000. It is deliberately idempotent and never
+  # overwrites an experiment a user has changed (see scripts/mlflow.provision.sh).
+  #
+  # Non-blocking is a hard requirement, and this wiring is what guarantees it:
+  #   - NO other service and no health gate depends_on this one, so its outcome
+  #     cannot hold back or fail the rest of the stack. `docker compose up -d`
+  #     starts the real services and returns without waiting for this container
+  #     to exit, so a provisioning failure never prevents the stack from starting.
+  #   - It depends on mlflow being HEALTHY only so it runs at the right moment.
+  #   - restart: "no" keeps it one-shot: it runs, reports, and exits. A later
+  #     `up -d` starts it again, which re-asserts the experiments idempotently.
+  # A failure is discoverable in `docker compose logs mlflow-provision` and in
+  # the container's non-zero exit code.
+  #
+  # MLFLOW_PROVISION_URL is the internal service address including the /mlflow
+  # static prefix. It is the reachable surface inside the otel network, where the
+  # published edge port is not exposed; the script derives the edge address from
+  # EDGE_PORT only when this variable is unset (host runs), so no port is literal.
+  mlflow-provision:
+    image: ghcr.io/mlflow/mlflow:v3.14.0
+    entrypoint: ["bash", "/scripts/mlflow.provision.sh"]
+    environment:
+      MLFLOW_PROVISION_URL: http://mlflow:5000/mlflow
+    volumes:
+      - ./scripts:/scripts:ro
+    networks:
+      - otel
+    depends_on:
+      mlflow:
+        condition: service_healthy
+    # One-shot: run once the server is healthy, then exit. Never restart, so a
+    # failure does not loop, and never gate anything, so a failure cannot block.
+    restart: "no"
