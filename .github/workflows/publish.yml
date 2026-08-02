@@ -1,0 +1,106 @@
+# Purpose: publish the pi OpenTelemetry extension package to npm when a version
+# tag is pushed. The workflow authenticates with trusted publishing over OpenID
+# Connect, so no long-lived npm token is stored in this repository. npm attaches
+# provenance automatically on this path, which a publish from a developer
+# machine cannot do.
+#
+# Before this workflow can publish, the package must already exist on the
+# registry and a trust relationship must name this file and this repository.
+# That relationship is created once, by hand, with `npm trust github`, because
+# that command rejects a token and needs an interactive two-factor session.
+#
+# @agents-index: Tag-triggered npm publish workflow using trusted publishing over OpenID Connect, with version agreement and already-published guards.
+
+name: publish
+
+on:
+  push:
+    tags:
+      # Match the package version tag form, for example v0.1.0.
+      - "v[0-9]+.[0-9]+.[0-9]+"
+
+# Least privilege. id-token is what lets npm verify this workflow's identity and
+# attach provenance. contents is read-only because the workflow never writes to
+# the repository.
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: packages/pi-opentelemetry
+
+    steps:
+      - name: Check out the tagged commit
+        uses: actions/checkout@v4
+
+      # Node 22.14.0 or later and npm 11.5.1 or later are the minimum versions
+      # that support trusted publishing. The package's own engines field states
+      # the same Node floor.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm to a version that supports trusted publishing
+        run: npm install -g npm@^11.5.1
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Run the unit tests
+        run: npm test
+
+      # Guard one: the tag, the manifest, and the changelog must agree. A tag
+      # that does not match the manifest publishes a version nobody expects.
+      - name: Assert the tag, the manifest, and the changelog agree
+        run: |
+          set -euo pipefail
+          tag_version="${GITHUB_REF_NAME#v}"
+          manifest_version="$(node -p "require('./package.json').version")"
+          changelog_version="$(grep -m1 -oE '^## [0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | awk '{print $2}')"
+
+          echo "tag:       ${tag_version}"
+          echo "manifest:  ${manifest_version}"
+          echo "changelog: ${changelog_version}"
+
+          if [ "${tag_version}" != "${manifest_version}" ]; then
+            echo "FAIL the tag and the manifest disagree."
+            echo "Fix: set the manifest version to ${tag_version}, or delete the tag and push one that matches ${manifest_version}."
+            echo "After: re-run this workflow and confirm all three versions match."
+            exit 1
+          fi
+
+          if [ "${tag_version}" != "${changelog_version}" ]; then
+            echo "FAIL the tag and the newest changelog entry disagree."
+            echo "Fix: add a '## ${tag_version}' heading to CHANGELOG.md as the newest entry."
+            echo "After: re-run this workflow and confirm all three versions match."
+            exit 1
+          fi
+
+      # Guard two: refuse to republish. npm rejects a duplicate version anyway,
+      # but failing here states the reason plainly instead of surfacing a
+      # registry error at the last step.
+      - name: Assert this version is not already published
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          status="$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/${name/\//%2F}/${version}")"
+
+          if [ "${status}" = "200" ]; then
+            echo "FAIL ${name}@${version} is already on the registry."
+            echo "Fix: raise the version in package.json, add the matching CHANGELOG.md heading, and push a new tag."
+            echo "After: re-run this workflow and confirm this check reports the version as unpublished."
+            exit 1
+          fi
+          echo "PASS ${name}@${version} is not yet published (registry returned ${status})."
+
+      # No NODE_AUTH_TOKEN. Trusted publishing supplies the credential through
+      # the OpenID Connect identity token, and npm attaches provenance.
+      - name: Publish
+        run: npm publish --access public
