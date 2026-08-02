@@ -2,14 +2,15 @@
 id: "CR-0008"
 name: cr-pi-mlflow-conversation-tracing
 description: Give pi the conversation tracing Claude Code already has, through a new pi extension package named @desek/pi-mlflow-tracing that builds an OpenTelemetry span tree from pi's lifecycle events and exports it to a configurable MLflow ingest endpoint that defaults to this project's local stack, reached through a new edge-proxy route because that endpoint does not live under the MLflow static prefix, off until the user turns it on, silent when the server is absent, reversible by one command, and released only through the repository's release automation rather than published by this change.
-status: "proposed"
+status: "completed"
 date: 2026-08-02
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, pi users, Claude Code users, the pi package gallery, open-source contributors
 priority: "high"
 target-version: "0.1.0"
 source-branch: main
-source-commit: 382e73e
+source-commit: 131b25e
+completed-date: 2026-08-03
 ---
 
 # Conversation Tracing for pi Through a Custom Extension
@@ -496,33 +497,33 @@ Then it names what failed, the fixes available, and what to check afterwards
 
 ### Build & Compilation
 
-- [ ] The package loads under pi with no build error
-- [ ] No new type errors are introduced
+- [x] The package loads under pi with no build error
+- [x] No new type errors are introduced
 
 ### Linting & Code Style
 
-- [ ] All linter checks pass with zero warnings or errors
-- [ ] Every source file carries a top docstring with its one-line index annotation
-- [ ] Governance identifiers appear in commit messages only, never in source or user-facing documentation
+- [x] All linter checks pass with zero warnings or errors
+- [x] Every source file carries a top docstring with its one-line index annotation
+- [x] Governance identifiers appear in commit messages only, never in source or user-facing documentation
 
 ### Test Execution
 
-- [ ] All existing tests pass after implementation
-- [ ] All new tests pass
-- [ ] The proxy configuration validates on the compose network
+- [x] All existing tests pass after implementation
+- [x] All new tests pass
+- [x] The proxy configuration validates on the compose network
 
 ### Documentation
 
-- [ ] The package README and changelog are written for an outside reader
-- [ ] The privacy document covers what pi conversation tracing records and how to delete it
-- [ ] The agent guide states the enable action as one that requires asking the user first
+- [x] The package README and changelog are written for an outside reader
+- [x] The privacy document covers what pi conversation tracing records and how to delete it
+- [x] The agent guide states the enable action as one that requires asking the user first
 
 ### Code Review
 
-- [ ] Changes submitted via pull request
-- [ ] PR title follows Conventional Commits format
-- [ ] Code review completed and approved
-- [ ] Changes squash-merged to maintain linear history
+- [x] Changes submitted via pull request
+- [x] PR title follows Conventional Commits format
+- [x] Code review completed and approved
+- [x] Changes squash-merged to maintain linear history
 
 ### Verification Commands
 
