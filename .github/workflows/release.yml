@@ -1,0 +1,75 @@
+# Purpose: run release-please in manifest mode on the default branch so that
+# each package gets its own version, changelog, component-scoped tag, and release
+# pull request, all derived from the Conventional Commits that touched its path.
+# The automation opens or updates a release pull request per package; merging one
+# is the release decision. Nothing is versioned or written by hand.
+#
+# Publication is deliberately not a separate workflow. A tag or a release that
+# this action creates with the default GITHUB_TOKEN starts no other workflow run,
+# so a publish workflow waiting for a release event would never fire. The publish
+# step therefore lives in this same run, added by a later phase as a job that
+# reads this job's released-paths output. This file is structured for that: the
+# release-please job exposes releases_created and paths_released as job outputs,
+# and permissions are declared per job so a publish job can hold id-token: write
+# without granting it to the release-please job.
+#
+# The default GITHUB_TOKEN is used on purpose, not a personal access token. The
+# usual reason to use a PAT here is to make the created release trigger a
+# downstream publish workflow, which is exactly the coupling this design avoids.
+#
+# @agents-index: Default-branch release workflow running release-please in manifest mode, opening a per-package release pull request and exposing released-paths outputs for same-run publication.
+
+name: release
+
+on:
+  push:
+    branches:
+      - main
+
+# Only one release run at a time on the default branch, so two quick pushes do
+# not race to open or update the same release pull requests. Do not cancel a run
+# in progress: a half-created release pull request is worse than a queued run.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+
+    # Least privilege for the release-please job. contents: write creates the
+    # tags and releases; pull-requests: write opens and updates the release pull
+    # requests; issues: write lets the action manage the labels it puts on them.
+    # No id-token here: this job never publishes. A later phase adds a separate
+    # publish job that holds id-token: write on its own.
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    # Exposed so a later-phase publish job in this same run can gate on what was
+    # released. releases_created is "true" when a merged release pull request
+    # caused a tag and release in this run; paths_released is the JSON array of
+    # the package paths that were released, which is the matrix a publish job
+    # iterates so it publishes only what this run released.
+    outputs:
+      releases_created: ${{ steps.release.outputs.releases_created }}
+      paths_released: ${{ steps.release.outputs.paths_released }}
+
+    steps:
+      # Pinned to the commit this repository verified (googleapis/release-please-action
+      # 0b6b3fc, action version 5.0.0), so the inputs and outputs used here match
+      # the code that runs rather than a moving major tag.
+      - name: Run release-please in manifest mode
+        id: release
+        uses: googleapis/release-please-action@0b6b3fc0186a2f7118bfd88fab9ea481e1839504
+        with:
+          # The default GITHUB_TOKEN is intended, see the file header. Omitting
+          # the token input would default to the same value; it is named here to
+          # make the deliberate choice visible.
+          token: ${{ secrets.GITHUB_TOKEN }}
+          # Both files live at the repository root and are read by path, so the
+          # configuration and the manifest are the single source of which
+          # packages this repository releases.
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
