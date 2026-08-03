@@ -21,7 +21,7 @@ COMPOSE_NETWORK := agent-observability_otel
 # Show the target list when make runs with no argument.
 .DEFAULT_GOAL := help
 
-.PHONY: help ci check-compose check-haproxy check-selftest lint-scripts verify
+.PHONY: help ci check-compose check-haproxy check-selftest check-release-config lint-scripts verify
 
 help: ## Show this target list
 	@echo "Usage: make <target>"
@@ -31,8 +31,25 @@ help: ## Show this target list
 		| sort \
 		| awk 'BEGIN {FS = ":.*## "} {printf "  %-16s %s\n", $$1, $$2}'
 
-ci: check-selftest check-compose check-haproxy lint-scripts verify ## Run every check; skip what cannot run and never pass a skip
+ci: check-selftest check-compose check-haproxy check-release-config lint-scripts verify ## Run every check; skip what cannot run and never pass a skip
 	@echo "ci: all checks complete"
+
+# The release configuration validation runs on every `make ci`, regardless of
+# stack state, because a misconfigured release must fail a check rather than a
+# release. It is a direct `ci` prerequisite and NOT swept into the stack-gated
+# `verify` target below: `verify` SKIPs every scripts/*.verify.sh when the stack
+# is down, and a release-config check that is silently skipped offline would let
+# a package be added without a configuration entry and never caught. The script
+# needs no stack and no network, so it always runs.
+check-release-config: ## Validate the release configuration against the packages on disk, always
+	@if [ -f scripts/release.config.verify.sh ]; then \
+		echo "check-release-config: validating release-please config against packages/"; \
+		bash scripts/release.config.verify.sh check \
+			&& echo "check-release-config: PASS" \
+			|| { echo "check-release-config: FAIL (read the fix the script printed)"; exit 1; }; \
+	else \
+		echo "check-release-config: SKIP (scripts/release.config.verify.sh not present yet)"; \
+	fi
 
 check-compose: ## Validate the compose file, or skip when it is not present yet
 	@if [ -f compose.yaml ]; then \
@@ -79,9 +96,13 @@ lint-scripts: ## Shell-lint every script under scripts/, or skip when there are 
 			|| { echo "lint-scripts: FAIL (fix the reported shellcheck findings)"; exit 1; }; \
 	fi
 
-verify: ## Run every verification script; skip when none exist or the stack is down
+verify: ## Run every stack verification script; skip when none exist or the stack is down
 	@shopt -s nullglob; \
-	scripts=(scripts/*.verify.sh); \
+	scripts=(); \
+	for s in scripts/*.verify.sh; do \
+		[ "$$s" = "scripts/release.config.verify.sh" ] && continue; \
+		scripts+=("$$s"); \
+	done; \
 	if [ $${#scripts[@]} -eq 0 ]; then \
 		echo "verify: SKIP (no verification scripts present yet)"; \
 	elif ! docker compose ps --status running -q 2>/dev/null | grep -q .; then \

@@ -1,18 +1,24 @@
-# Continuous integration for @desek/pi-opentelemetry.
+# Continuous integration for the repository's pi packages.
 #
-# Runs on every push and pull request. Two jobs:
-#   - unit: the package's Node built-in test suite, on every Node line the
-#     manifest's engines range admits. The suite runs with no network and no
-#     running observability stack (NFR5), so it is a pure in-process check.
+# Runs on every push and pull request. Three jobs:
+#   - packages: reads the release configuration and emits the list of package
+#     paths it declares, so the unit job runs a matrix over exactly the packages
+#     the repository releases. The list has one source, release-please-config.json,
+#     and is never a second list kept in agreement by hand (NFR1).
+#   - unit: each configured package's Node built-in test suite, on every Node
+#     line the packages' engines range admits. The suite runs with no network and
+#     no running observability stack, so it is a pure in-process check.
 #   - smoke: the install smoke test (scripts/pi-package.verify.sh), which packs
-#     the package, installs the tarball into a clean project, and loads the pi
-#     manifest entry through jiti exactly as pi does. This is the check that
-#     makes the Phase 2 entry-point finding binding: a broken files list fails
-#     here rather than in a user's silent install.
+#     every package, installs each tarball into a clean project, and loads the pi
+#     manifest entry through jiti exactly as pi does. This is the check that makes
+#     a broken files list fail here rather than in a user's silent install. The
+#     script already discovers and proves every package under packages/, so the
+#     smoke job needs no per-package matrix.
 #
-# The engines field declares node ">=22.14.0". The matrix pins the promised
-# floor (22.14.0) and the current maintained major lines at or above it (22, 24),
-# so both the minimum the package guarantees and the newest runtime are covered.
+# The engines field of both packages declares node ">=22.14.0". The matrix pins
+# the promised floor (22.14.0) and the current maintained major lines at or above
+# it (22, 24), so both the minimum the packages guarantee and the newest runtime
+# are covered.
 name: CI
 
 on:
@@ -30,12 +36,35 @@ defaults:
     shell: bash
 
 jobs:
+  packages:
+    name: Resolve the configured packages
+    runs-on: ubuntu-latest
+    outputs:
+      # A JSON array of package paths, e.g. ["packages/pi-opentelemetry",
+      # "packages/pi-mlflow-tracing"], consumed by the unit job's matrix.
+      list: ${{ steps.resolve.outputs.list }}
+    steps:
+      - name: Check out the repository
+        uses: actions/checkout@v4
+
+      - name: Read the package paths from the release configuration
+        id: resolve
+        run: |
+          # The release configuration is the single statement of which packages
+          # this repository releases (NFR1). Deriving the test matrix from it
+          # means a third package is tested the moment it is declared there, with
+          # no second list to edit (NFR4, AC-17).
+          list="$(jq -c '.packages | keys' release-please-config.json)"
+          echo "list=$list" >> "$GITHUB_OUTPUT"
+
   unit:
-    name: Unit tests (Node ${{ matrix.node-version }})
+    name: Unit tests (${{ matrix.package }}, Node ${{ matrix.node-version }})
+    needs: packages
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        package: ${{ fromJSON(needs.packages.outputs.list) }}
         node-version: ["22.14.0", "22", "24"]
     steps:
       - name: Check out the repository
@@ -46,14 +75,14 @@ jobs:
         with:
           node-version: ${{ matrix.node-version }}
           cache: npm
-          cache-dependency-path: packages/pi-opentelemetry/package-lock.json
+          cache-dependency-path: ${{ matrix.package }}/package-lock.json
 
       - name: Install dependencies from the lockfile
-        working-directory: packages/pi-opentelemetry
+        working-directory: ${{ matrix.package }}
         run: npm ci
 
       - name: Run the unit test suite
-        working-directory: packages/pi-opentelemetry
+        working-directory: ${{ matrix.package }}
         run: npm test
 
   smoke:
