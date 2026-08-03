@@ -577,7 +577,13 @@ npx release-please release-pr --dry-run --repo-url desek/agent-observability \
 * The existing trusted-publishing relationship on the registry for `@desek/pi-opentelemetry`.
 * A one-time human act to create the registry package and trust relationship for the new package `@desek/pi-mlflow-tracing`, which is not yet on the registry.
 
-**Open decision requiring a human choice.** `packages/pi-mlflow-tracing` declares 0.1.0 on disk but has never been published. Seeding `.release-please-manifest.json` at 0.1.0 makes release-please treat 0.1.0 as already released, so it would never publish 0.1.0. Publishing the new package's first version therefore needs a deliberate seeding choice, and the alternatives differ in what first version reaches the registry: seed the manifest below the on-disk version (for example 0.0.0) so the automation proposes 0.1.0 as the first release; use the action's bootstrap-sha to start the package's history from a chosen commit; or publish 0.1.0 once by hand and then seed at 0.1.0 so the automation continues from there. The implementation MUST resolve this before the new package's first release; the choice is recorded here as unresolved because it is a release-policy decision, not a mechanical one.
+**Decision taken, 2026-08-03, by the requestor.** `packages/pi-mlflow-tracing` declares 0.1.0 on disk but has never been published. Seeding `.release-please-manifest.json` at 0.1.0 makes release-please treat 0.1.0 as already released, so it would never publish 0.1.0. The chosen resolution is to seed that package at `0.0.0`, so the automation computes 0.1.0 from the commits and proposes it as an ordinary release pull request.
+
+The two alternatives were rejected. The action's bootstrap-sha works, but it records the starting point as a commit identifier in a configuration file rather than as a version number, which a later reader cannot check against the registry. Publishing 0.1.0 by hand and then seeding at 0.1.0 contradicts the requirement in CR-0008 that this package reaches a registry only through the release automation.
+
+The consequence is that the new package's first published version is produced by the same loop every later version uses, so the loop is proven by the first release rather than exempted from it.
+
+**Decision taken, 2026-08-03, by the requestor.** The Phase 6 rehearsal is driven up to the merge of the release pull request and then stops for the requestor's confirmation. Nothing reaches the registry without that confirmation, because a published version cannot be recalled cleanly.
 
 ## Estimated Effort
 
