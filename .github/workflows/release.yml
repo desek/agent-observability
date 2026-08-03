@@ -7,17 +7,22 @@
 # Publication is deliberately not a separate workflow. A tag or a release that
 # this action creates with the default GITHUB_TOKEN starts no other workflow run,
 # so a publish workflow waiting for a release event would never fire. The publish
-# step therefore lives in this same run, added by a later phase as a job that
-# reads this job's released-paths output. This file is structured for that: the
-# release-please job exposes releases_created and paths_released as job outputs,
-# and permissions are declared per job so a publish job can hold id-token: write
-# without granting it to the release-please job.
+# job therefore lives in this same run: it reads the release-please job's
+# released-paths output and publishes exactly the packages that were released.
+# Permissions are declared per job so the publish job holds id-token: write for
+# trusted publishing without granting it to the release-please job.
 #
 # The default GITHUB_TOKEN is used on purpose, not a personal access token. The
 # usual reason to use a PAT here is to make the created release trigger a
 # downstream publish workflow, which is exactly the coupling this design avoids.
 #
-# @agents-index: Default-branch release workflow running release-please in manifest mode, opening a per-package release pull request and exposing released-paths outputs for same-run publication.
+# Because publication moved here from the retired publish.yml, the registry
+# trust relationship for each package must name this file,
+# .github/workflows/release.yml, so it must be re-pointed before the first
+# release; trusted publishing rejects a request whose workflow file the
+# relationship does not name.
+#
+# @agents-index: Default-branch release workflow running release-please in manifest mode, opening a per-package release pull request and publishing the released packages in the same run over trusted publishing.
 
 name: release
 
@@ -73,3 +78,114 @@ jobs:
           # packages this repository releases.
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+  # Publication runs in this same workflow run, not as a separate workflow. A tag
+  # or a release the release-please job creates with the default GITHUB_TOKEN
+  # starts no other workflow run, so a publish workflow waiting for a release
+  # event would never fire. This job therefore gates on the release-please job's
+  # own report of what it released and publishes exactly those packages.
+  #
+  # The registry trust relationship names the workflow file that publishes. That
+  # file is now this one, .github/workflows/release.yml, not the retired
+  # publish.yml. The relationship must be re-pointed at this file before the first
+  # release, or trusted publishing rejects the request.
+  publish:
+    needs: release-please
+    # Only run when the release-please job actually cut a release in this run
+    # (a merged release pull request). A push that releases nothing skips this
+    # job entirely, so nothing reaches the registry on an ordinary commit.
+    if: needs.release-please.outputs.releases_created == 'true'
+    runs-on: ubuntu-latest
+
+    # One matrix leg per package the release-please job reported as released,
+    # read from its paths_released JSON array. This is what makes the run publish
+    # only what it released: a package that was not part of this release has no
+    # matrix leg and is never published. fail-fast is off so one package's
+    # failure does not cancel a sibling's already-valid publish.
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.release-please.outputs.paths_released) }}
+
+    # Least privilege. id-token is what lets npm verify this workflow's identity
+    # over OpenID Connect and attach provenance; there is no stored npm token.
+    # contents is read-only because this job never writes to the repository.
+    permissions:
+      contents: read
+      id-token: write
+
+    # Each matrix leg operates inside its own package directory, which is exactly
+    # the path release-please reported for it.
+    defaults:
+      run:
+        working-directory: ${{ matrix.package }}
+
+    steps:
+      - name: Check out the released commit
+        uses: actions/checkout@v4
+
+      # Node 22.14.0 or later and npm 11.5.1 or later are the minimum versions
+      # that support trusted publishing. Each package's own engines field states
+      # the same Node floor.
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.14.0"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm to a version that supports trusted publishing
+        run: npm install -g npm@^11.5.1
+
+      - name: Install dependencies from the lockfile
+        run: npm ci
+
+      - name: Run the unit tests
+        run: npm test
+
+      # Guard one: the version release-please reported for this package must agree
+      # with the package manifest that this run merged. The changelog is no longer
+      # compared, because release-please generates it from the same commits that
+      # set the version, so a hand-agreement check has nothing left to catch.
+      - name: Assert the released version agrees with the package manifest
+        env:
+          PACKAGE: ${{ matrix.package }}
+          RELEASED_VERSION: ${{ needs.release-please.outputs[format('{0}--version', matrix.package)] }}
+        run: |
+          set -euo pipefail
+          manifest_version="$(node -p "require('./package.json').version")"
+
+          echo "package:   ${PACKAGE}"
+          echo "released:  ${RELEASED_VERSION}"
+          echo "manifest:  ${manifest_version}"
+
+          if [ "${RELEASED_VERSION}" != "${manifest_version}" ]; then
+            echo "FAIL the released version and the package manifest disagree for ${PACKAGE}."
+            echo "Fix: this should not happen on a release-please run, which sets both together; inspect the merged release pull request for ${PACKAGE} to see which value is wrong."
+            echo "After: re-run this workflow and confirm the released version and the manifest match."
+            exit 1
+          fi
+
+      # Guard two: refuse to republish. npm rejects a duplicate version anyway,
+      # but failing here states the package, the version, and the fix plainly
+      # instead of surfacing a registry error at the last step.
+      - name: Assert this version is not already published
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          set -euo pipefail
+          name="$(node -p "require('./package.json').name")"
+          version="$(node -p "require('./package.json').version")"
+          status="$(curl -s -o /dev/null -w '%{http_code}' "https://registry.npmjs.org/${name/\//%2F}/${version}")"
+
+          if [ "${status}" = "200" ]; then
+            echo "FAIL ${name}@${version} is already on the registry."
+            echo "Fix: this version was already published; a re-run of a release is expected to be a no-op here. If a new release is intended, merge a new release pull request for ${PACKAGE}, which raises the version and regenerates the changelog."
+            echo "After: re-run this workflow and confirm this check reports the version as unpublished."
+            exit 1
+          fi
+          echo "PASS ${name}@${version} is not yet published (registry returned ${status})."
+
+      # No NODE_AUTH_TOKEN. Trusted publishing supplies the credential through
+      # the OpenID Connect identity token, and npm attaches provenance.
+      - name: Publish
+        run: npm publish --access public
