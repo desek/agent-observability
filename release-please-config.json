@@ -1,0 +1,12 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/v17.11.1/schemas/config.json",
+  "separate-pull-requests": true,
+  "packages": {
+    "packages/pi-opentelemetry": {
+      "release-type": "node"
+    },
+    "packages/pi-mlflow-tracing": {
+      "release-type": "node"
+    }
+  }
+}
