@@ -81,7 +81,7 @@ check_files_parse() {
 		if [[ ! -f "$f" ]]; then
 			echo "release.config.verify: FAIL required file not found: $f" >&2
 			echo "  Fix: this file is part of the release automation; restore it from" >&2
-			echo "       version control or add it (Phase 1 of CR-0009 created both)." >&2
+			echo "       version control or add it (the release automation needs both)." >&2
 			echo "  Then check: ls $f resolves." >&2
 			rm -f "$err"
 			exit 1

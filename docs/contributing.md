@@ -91,7 +91,28 @@ Add or change a script under `scripts/` with a top docstring and one
 documents runnable, because `scripts/readme.verify.sh` runs them all. The
 governance record for every change lives under `docs/cr/`.
 
+## Releases and the commit convention
+
+Every squash-merge subject on the default branch must be a Conventional Commit,
+and that subject is not decorative: it is the input the release automation reads
+to compute the next version and to write the changelog for the package the change
+touched. A `feat:` subject proposes a minor version, a `fix:` subject a patch,
+and a breaking-change marker a major. This is why the pull request title above
+must be a Conventional Commit: a squash merge writes exactly that title onto the
+default branch, so the title you give the pull request becomes the subject the
+automation reads.
+
+To cause a release you write that Conventional Commit title and squash-merge your
+pull request. That is all. You do not raise a version number, you do not write a
+changelog entry, and you do not push a tag. The automation opens a release pull
+request holding the computed version and the generated changelog; a maintainer
+merges it, and the same workflow run cuts the component tag, creates the release,
+and publishes the package. The whole loop, with every wait point named and the
+one-time setup a brand-new package's first publish needs, is in the
+[release runbook](release-runbook.md).
+
 ## Next
 
 * [Architecture](architecture.md), what a change has to keep true.
 * [Privacy](privacy.md), the posture a change must not weaken.
+* [Release runbook](release-runbook.md), the whole release loop and its wait points.

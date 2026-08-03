@@ -75,6 +75,7 @@ single home for its answer.
 | [How it fits together](docs/architecture.md) | Which services run, what does the single port route to, which versions are pinned, and what survives a teardown? |
 | [Troubleshooting](docs/troubleshooting.md) | It is not working. What is the cause and what is the fix? |
 | [Contributing](docs/contributing.md) | What does `make ci` check, where does a file belong, and how are the screenshots regenerated? |
+| [Release runbook](docs/release-runbook.md) | How does a package get released, what do I do to cause one, and where do I wait? |
 
 Two files at the repository root are read rather than run:
 [`AGENTS.md`](AGENTS.md) teaches an agent this stack in prose and is written to be
