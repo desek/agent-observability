@@ -35,6 +35,8 @@ individual targets.
 | `AGENTS.md` | The example agent instruction file. `CLAUDE.md` is a symbolic link to it. |
 | `.mcp.json` | The example MCP client configuration. No credential to paste. |
 | `Makefile` | `make ci`, the single check entry point. |
+| `release-please-config.json` | The release automation's declaration of which packages this repository releases, one entry per package. |
+| `.release-please-manifest.json` | The release automation's record of each package's current released version. |
 | `LICENSE` | The Apache-2.0 license. |
 | `stack/` | Per-service configuration: Alloy, Grafana, HAProxy, Loki, Mimir, Tempo, and the thin MLflow image build. |
 | `packages/pi-opentelemetry/` | The `@desek/pi-opentelemetry` pi extension: pi's metrics, logs, and traces over OTLP. Source, tests, and its published-package manifest. |

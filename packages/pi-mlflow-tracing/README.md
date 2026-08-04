@@ -27,6 +27,13 @@ pi install npm:@desek/pi-mlflow-tracing
 
 This registers the extension with pi. It stays dormant until you enable it.
 
+Install a version later than `0.0.1`. That first version was a one-time bootstrap
+publish, needed only to create the package on the registry so trusted publishing
+could name it, and it is the only version of this package published without build
+provenance. Every version after it comes from the repository's release automation
+and carries provenance, so a plain install (which takes the latest version) is
+correct and only an explicit pin to `0.0.1` should be avoided.
+
 ## Enable
 
 The extension is a hard no-op until you set its master switch. Enabling it is
