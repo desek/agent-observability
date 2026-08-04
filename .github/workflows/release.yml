@@ -60,6 +60,13 @@ jobs:
     outputs:
       releases_created: ${{ steps.release.outputs.releases_created }}
       paths_released: ${{ steps.release.outputs.paths_released }}
+      # The action emits a per-path output for every released package, such as
+      # `packages/pi-opentelemetry--version`. A job's outputs map is static, so
+      # those keys cannot be forwarded by name without listing every package
+      # here, which would break the rule that a new package needs only a config
+      # entry and a manifest entry. Forwarding the whole object as JSON keeps
+      # that rule intact and lets the publish job index it by matrix path.
+      all_outputs: ${{ toJSON(steps.release.outputs) }}
 
     steps:
       # Pinned to the commit this repository verified (googleapis/release-please-action
@@ -149,7 +156,7 @@ jobs:
       - name: Assert the released version agrees with the package manifest
         env:
           PACKAGE: ${{ matrix.package }}
-          RELEASED_VERSION: ${{ needs.release-please.outputs[format('{0}--version', matrix.package)] }}
+          RELEASED_VERSION: ${{ fromJSON(needs.release-please.outputs.all_outputs)[format('{0}--version', matrix.package)] }}
         run: |
           set -euo pipefail
           manifest_version="$(node -p "require('./package.json').version")"

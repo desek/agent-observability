@@ -2,7 +2,9 @@
 
 Date: 2026-08-04
 Change owner: daniel@grenemark.se
-Governing change: CR-0009, phase 6, the release rehearsal
+Governing change: the release rehearsal, phase 6 of the release management
+change request (named in the commit message, not here, because a tracked file
+outside docs must carry no governance identifier)
 
 ## What happened
 
@@ -47,3 +49,31 @@ Then restore both version fields to 0.1.0.
 - `npm view @desek/pi-mlflow-tracing versions` lists 0.0.1 and 0.1.0.
 - `scripts/release.verify.sh @desek/pi-mlflow-tracing 0.1.0` exits 0,
   asserting the tag, the release, the registry version, and provenance.
+
+## Second occurrence, same day
+
+The redo produced the same half-finished state, for a different reason. The
+unit tests passed, and the run then failed on the guard that compares the
+released version against the package manifest.
+
+Cause: the release job declared only `releases_created` and `paths_released`
+as job outputs. A job outputs map is static, so the per-path output the action
+emits for each released package, `packages/pi-mlflow-tracing--version`, was
+never forwarded. The guard therefore compared an empty string against 0.1.0
+and failed. The action does emit that output; it was read from the action
+source rather than inferred from a run log, which does not echo every output.
+
+Recovery was identical: tag and release deleted, both version fields reset to
+0.0.1. The tag pointed at commit e507bb4e6a0e04367421381c7798e2ce5b9ff17e, and
+the rollback procedure above applies unchanged with that SHA.
+
+The fix forwards the whole output object as JSON, so the publish job can index
+it by matrix path without any package being named in the workflow.
+
+## Lesson
+
+Two releases were lost to guards that could only fail after a real release. The
+release job is not exercised by any pull request, because the release branch is
+created by the default token and starts no workflow run. Every guard inside it
+is therefore first executed in production. Anything added to that job needs a
+way to be tested before a release depends on it.
