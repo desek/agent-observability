@@ -72,7 +72,15 @@ function shippedByFiles(relPath: string, files: string[]): boolean {
 test("manifest declares publishable fields", () => {
   assert.equal(manifest.name, "@desek/pi-opentelemetry");
   assert.equal(manifest.private, undefined, "private must be absent to publish");
-  assert.equal(manifest.version, "0.1.0");
+  // Asserted as a shape, never as a literal. The release automation rewrites
+  // this field on every release, so a pinned value fails CI on the default
+  // branch immediately after each one, and the test would be edited to match
+  // the release rather than catching anything.
+  assert.match(
+    String(manifest.version),
+    /^\d+\.\d+\.\d+(?:-[0-9A-Za-z-.]+)?$/,
+    "version must be a semantic version",
+  );
   assert.equal(manifest.license, "Apache-2.0");
   assert.ok(existsSync(join(packageRoot, "LICENSE")), "a LICENSE file must ship");
 
