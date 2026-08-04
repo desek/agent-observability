@@ -2,14 +2,15 @@
 id: "CR-0009"
 name: cr-monorepo-release-management
 description: Replace the single-package, hand-tagged release path with manifest-driven release automation from release-please, so that both pi extension packages are versioned from their own commit history, get their own changelog, their own component-scoped tag, and their own release pull request, and so that publication to npm happens only when a release is merged, with the existing trusted-publishing workflow reused rather than replaced.
-status: "proposed"
+status: "completed"
 date: 2026-08-02
+completed-date: 2026-08-04
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, pi users, open-source contributors, the npm registry consumers of both packages
 priority: "high"
 target-version: "0.1.0"
 source-branch: main
-source-commit: 7680d56
+source-commit: 12ad0cb
 ---
 
 # Manifest-Driven Release Management for Two pi Packages
@@ -482,33 +483,33 @@ Then the automation proposes its intended first published version rather than a 
 
 ### Build & Compilation
 
-- [ ] Both packages' test suites run from the workflows without error
-- [ ] The configuration and the manifest parse as valid JSON
+- [x] Both packages' test suites run from the workflows without error
+- [x] The configuration and the manifest parse as valid JSON
 
 ### Linting & Code Style
 
-- [ ] All linter checks pass with zero warnings or errors
-- [ ] The new script carries the standard top docstring and its one-line index annotation
-- [ ] Governance identifiers appear in commit messages only, never in workflows, scripts, or user-facing documentation
+- [x] All linter checks pass with zero warnings or errors
+- [x] The new script carries the standard top docstring and its one-line index annotation
+- [x] Governance identifiers appear in commit messages only, never in workflows, scripts, or user-facing documentation
 
 ### Test Execution
 
-- [ ] All existing tests pass after implementation
-- [ ] The release configuration validation passes
-- [ ] A dry run of the release automation proposes what the history says it should
+- [x] All existing tests pass after implementation
+- [x] The release configuration validation passes
+- [x] A dry run of the release automation proposes what the history says it should
 
 ### Documentation
 
-- [ ] The contributor documentation states the commit convention and the release flow
-- [ ] The release runbook states every step and every wait point, and matches the rehearsal that was run
-- [ ] The changelog of the existing package keeps its written history and gains generated entries after it
+- [x] The contributor documentation states the commit convention and the release flow
+- [x] The release runbook states every step and every wait point, and matches the rehearsal that was run
+- [x] The changelog of the existing package keeps its written history and gains generated entries after it
 
 ### Code Review
 
-- [ ] Changes submitted via pull request
-- [ ] PR title follows Conventional Commits format
-- [ ] Code review completed and approved
-- [ ] Changes squash-merged to maintain linear history
+- [x] Changes submitted via pull request
+- [x] PR title follows Conventional Commits format
+- [x] Code review completed and approved
+- [x] Changes squash-merged to maintain linear history
 
 ### Verification Commands
 
