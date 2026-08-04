@@ -1,6 +1,6 @@
 {
   "name": "@desek/pi-opentelemetry",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "pi coding-agent extension that exports OpenTelemetry metrics, log events, and traces over OTLP gRPC, at parity with Claude Code's built-in telemetry. It installs as a no-op: it emits nothing unless enabled, stays silent when no collector is reachable, and never blocks or crashes the agent.",
   "license": "Apache-2.0",
   "author": "desek",

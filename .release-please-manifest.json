@@ -1,4 +1,4 @@
 {
-  "packages/pi-opentelemetry": "0.1.0",
+  "packages/pi-opentelemetry": "0.1.1",
   "packages/pi-mlflow-tracing": "0.0.1"
 }
