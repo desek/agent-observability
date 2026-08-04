@@ -16,6 +16,14 @@ whole file.
 ### Bug Fixes
 
 * correct the changelog for the bootstrap release ([0a79ae8](https://github.com/desek/agent-observability/commit/0a79ae8be10eeec7204eac034d314a6864232372))
+* drop the changelog agreement check that breaks every release ([e81c985](https://github.com/desek/agent-observability/commit/e81c985869effc0ce079e03dcdbeb733649e131a))
+
+## [0.1.0](https://github.com/desek/agent-observability/compare/pi-mlflow-tracing-v0.0.1...pi-mlflow-tracing-v0.1.0) (2026-08-04)
+
+
+### Bug Fixes
+
+* correct the changelog for the bootstrap release ([0a79ae8](https://github.com/desek/agent-observability/commit/0a79ae8be10eeec7204eac034d314a6864232372))
 
 ## 0.0.1 - 2026-08-04
 
