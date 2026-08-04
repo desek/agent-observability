@@ -34,6 +34,16 @@ component is the package name with its scope removed, so `@desek/pi-opentelemetr
 at `0.1.1` is tagged `pi-opentelemetry-v0.1.1`. The bare `v<version>` form is
 retired: it could not say which package it released.
 
+## A one-time repository setting the automation needs
+
+release-please opens a release pull request by pushing a branch and then calling
+the API to open a pull request for it, so the repository must permit GitHub
+Actions to create pull requests. Turn on "Allow GitHub Actions to create and
+approve pull requests" in the repository's Actions settings before the first
+run. Without it the automation creates the release branch and then fails when it
+tries to open the pull request, so the symptom is a stray release branch and a
+failed workflow run rather than a release pull request that never appears.
+
 ## The loop, step by step
 
 1. **Write the Conventional Commit subject.** When you open the pull request that
@@ -117,11 +127,70 @@ workflow can publish, so a first release without this step fails at the publish
 job with an identity error rather than a missing-version error. Do it once, then
 the ordinary loop above publishes every version, including that first one.
 
+Because trusted publishing can only name a package that already exists on the
+registry, creating the package means one hand publish of a bootstrap version,
+and that hand-published version is the only version of the package that carries
+no build provenance. When you publish it, keep that bootstrap version small and
+say in its changelog that it exists only to create the package and carries no
+provenance, so an installer takes a later version. `pi-mlflow-tracing` 0.0.1 was
+that bootstrap version; every version after it came from the automation and
+carries provenance.
+
+## Forcing a specific version with Release-As
+
+Sometimes the version the history computes is not the version you need, for
+example to seed a bootstrap version or to recover from a lost release. There are
+two ways to force one, and both have a sharp edge the rehearsal found.
+
+* **A Release-As footer on a commit applies to every package that commit
+  touches.** The footer cannot be scoped to one package from the commit, so a
+  commit carrying it must touch exactly one package. Getting this wrong forced a
+  sibling package to a version that was already published. Split the change so
+  the commit that carries the footer touches only the package it is meant for.
+* **The per-package `release-as` option in the configuration is sticky.** Once
+  the version it forces has published, the option keeps forcing that same
+  version on every later run, so it must be removed as soon as that version is
+  out. Leave it in place and the next release proposes the version already on the
+  registry. Both pins used during the rehearsal were removed the moment their
+  versions published.
+
+## The release job is not exercised before a release
+
+The release pull request's branch is created by the default token, and a branch
+that a workflow's own token pushes starts no further workflow run, so the release
+pull request receives no continuous integration at all. Every guard inside the
+release job therefore runs for the first time in production, on the merge that is
+meant to publish. Two releases were lost this way during the rehearsal before the
+guards were made correct. Treat anything you add to the release job as untested
+until a real release exercises it, and prove it some other way first.
+
+Guard failures the rehearsal found, all now fixed, are worth knowing so you do
+not reintroduce them:
+
+* **A test that pins the manifest version to a literal breaks the default branch
+  after every release.** The automation raises the version on merge, so a test
+  asserting the version equals a hard-coded string fails on the very next push.
+  Assert the shape of the version or read it from the manifest, never a literal.
+* **A generated changelog heading is a Markdown link, not a bare version.** A
+  check that compared the newest changelog heading against a plain-version
+  pattern broke the publish, because the automation writes that heading as a
+  link. That agreement check was already slated for removal and is gone; do not
+  add it back.
+* **A job's outputs map is static.** The release job must forward the action's
+  whole per-path output object as JSON for the publish job to read each released
+  path's version. Declaring only a fixed pair of outputs left the version guard
+  comparing against an empty string. Forwarding the whole object keeps this
+  working without naming any package in the workflow.
+
 ## When a step does not happen
 
-* **No release pull request appeared after step 2.** The merged subject was not a
-  Conventional Commit the automation could read. Land a follow-up Conventional
-  Commit; do not edit a version file to force it.
+* **No release pull request appeared after step 2.** Either the merged subject
+  was not a Conventional Commit the automation could read, in which case you land
+  a follow-up Conventional Commit and do not edit a version file to force it; or
+  the run failed after creating a release branch, which means the repository does
+  not permit GitHub Actions to create pull requests. A stray release branch with
+  a failed run points at the setting; turn on "Allow GitHub Actions to create and
+  approve pull requests" as described above.
 * **The publish job was skipped after step 5.** The run released nothing, which
   means no release pull request was actually merged in that push. Confirm you
   merged the release pull request, not the feature pull request again.

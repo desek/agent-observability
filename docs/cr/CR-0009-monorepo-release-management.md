@@ -593,6 +593,67 @@ Roughly 16 to 24 person-hours: three for the configuration and the seeding, thre
 
 Chosen approach: "manifest-driven release-please with component-scoped tags and a release pull request per package, publishing through the existing trusted-publishing path", because it derives the version and the changelog from the history rather than from a person, because manifest mode exists for exactly this multi-package case, because per-package tags and pull requests keep two independent packages independent, and because it changes what triggers publication without changing how publication authenticates.
 
+## Rehearsal Record
+
+The Phase 6 rehearsal was run for real on this repository on 2026-08-04, driving
+the whole loop from a squash-merged Conventional Commit through the automation's
+release pull request, its merge, the component tag and release, and the publish
+job, to a version on the registry with provenance. Two versions were released,
+both through the automation with trusted-publishing provenance:
+
+| Package | Version | Tag | Release | Registry | Provenance |
+|---------|---------|-----|---------|----------|------------|
+| `@desek/pi-opentelemetry` | 0.1.1 | `pi-opentelemetry-v0.1.1` | `pi-opentelemetry-v0.1.1` | published | yes |
+| `@desek/pi-mlflow-tracing` | 0.1.0 | `pi-mlflow-tracing-v0.1.0` | `pi-mlflow-tracing-v0.1.0` | published | yes |
+
+After the rehearsal the registry holds `pi-opentelemetry` 0.1.0 and 0.1.1, and
+`pi-mlflow-tracing` 0.0.1 and 0.1.0. The `pi-mlflow-tracing` 0.0.1 version is the
+bootstrap hand publish that created the package so trusted publishing could name
+it; it is the only version without provenance, and its changelog says so.
+`scripts/release.verify.sh` exits 0 for both released versions and exits 1 for a
+version that was never released.
+
+### What the rehearsal found, and what the runbook now states
+
+No dry run exercises the release job, the tag creation, the publish step, or the
+provenance attachment, so the rehearsal was the first execution of every guard
+inside the release job. It surfaced facts the design had not, all of which are
+now fixed and stated in the release runbook because the rehearsal is the source
+and the runbook is the copy:
+
+1. A one-time repository prerequisite: GitHub Actions must be permitted to create
+   pull requests. Without it the automation creates the release branch and then
+   fails when it tries to open the pull request.
+2. Release pull requests receive no continuous integration at all. Their branch
+   is created by the default token, which starts no workflow run, so every guard
+   inside the release job runs first in production. Two releases were lost this
+   way.
+3. Both packages pinned the manifest version to a literal in their tests, which
+   breaks the default branch after every release because the automation raises
+   the version on merge.
+4. A changelog agreement check in the package tests broke the publish: the
+   generated heading is a Markdown link that a plain-version pattern does not
+   match. The Tests to Remove table had already ruled this check should go; it
+   was removed from the workflow and missed in the tests, and is now gone.
+5. The release job declared only two outputs, so the per-path version output was
+   never forwarded and the version guard compared against an empty string. Fixed
+   by forwarding the whole output object as JSON, deliberately not by naming each
+   package, which would break NFR4.
+6. A Release-As footer applies to every package a commit touches, so a commit
+   carrying it must touch exactly one package. Getting this wrong forced a
+   sibling package to a version already published.
+7. The per-package `release-as` config option is sticky and must be removed once
+   the version it forces is published. Both pins were used and both are now
+   removed.
+8. Trusted publishing requires the package to exist on the registry first, so a
+   brand-new package needs one hand publish. `pi-mlflow-tracing` 0.0.1 was that
+   bootstrap and is the only version without provenance.
+
+Two recoveries, where a tag and a GitHub release existed but the registry did
+not, are recorded in `.agents/rollback/2026-08-04-phantom-mlflow-tracing-release.md`;
+in each the tag and release were deleted and both version fields reset before the
+release was driven again.
+
 ## Related Items
 
 * Unblocks the publication of the package CR-0008 delivered. CR-0008 is complete and deliberately published nothing; this change is the release path that lets `@desek/pi-mlflow-tracing` reach the registry.
