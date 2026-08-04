@@ -7,7 +7,8 @@
       "release-as": "0.1.1"
     },
     "packages/pi-mlflow-tracing": {
-      "release-type": "node"
+      "release-type": "node",
+      "release-as": "0.1.0"
     }
   }
 }
