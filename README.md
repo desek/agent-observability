@@ -19,6 +19,12 @@ side by side.
 
 ![A coding-agent conversation opened in the MLflow interface, showing the user turn, two assistant turns, and a tool call as spans, with the trace status, latency, and the git.org demo-seed tag.](docs/images/mlflow-conversation.png)
 
+One agent session, drawn as a trace. The root span is the session; beneath it the
+tool calls and the subagents it delegated to appear on one timeline, so a run
+that took ten minutes can be read at a glance:
+
+![One coding-agent session shown as a Tempo trace waterfall in Grafana: a ten-minute agent_session root span with ten child spans beneath it, mixing tool calls such as Bash, Edit, Read, and Write with subagent spans for a reviewer, an implementor, and a validator, each drawn at its own start time and length.](docs/images/trace-waterfall.png)
+
 A short silent walkthrough of the working product, from the dashboard, into one
 log line, and into one conversation in MLflow:
 

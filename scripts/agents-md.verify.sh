@@ -146,7 +146,20 @@ check_metric_names() {
 			"AGENTS.md must state the real metric names; add them." \
 			"re-run 'scripts/agents-md.verify.sh' once the metric names are present."
 	fi
-	known="$(curl -s --max-time 15 "$B/prometheus/api/v1/label/__name__/values" \
+	# The label endpoint needs an explicit range. Without one it answers from a
+	# short default window, so a store holding hours of data returns an empty list
+	# and this check fails claiming the store is down. The failure is latent: it
+	# passes while data is minutes old and starts failing once it is hours old,
+	# which makes it look like an outage rather than a query defect. Ask for a
+	# window wide enough to cover any telemetry the documentation could describe.
+	local _now _start
+	_now="$(date +%s)"
+	# 24h, not a week. Both return the same set here, and the wider query is slow
+	# enough to time out intermittently, which reads as an outage rather than a
+	# slow query. Keep the window just wide enough to cover the stored data.
+	_start="$((_now - 86400))"
+	known="$(curl -s --max-time 45 --get "$B/prometheus/api/v1/label/__name__/values" \
+		--data-urlencode "start=${_start}" --data-urlencode "end=${_now}" \
 		| python3 -c 'import json,sys; print("\n".join(json.load(sys.stdin).get("data",[])))' || true)"
 	if [ -z "$known" ]; then
 		fail "the metrics store returned no metric names through port ${EDGE_PORT}." \

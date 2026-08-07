@@ -13,8 +13,9 @@
 #
 # The leak check is the load-bearing control and it runs BEFORE any capture,
 # never after, because a frame already written cannot be made safe by a later
-# assertion. It asserts that every git_org label value present in the metric
-# store (Mimir) and the log store (Loki), within the window the images capture,
+# assertion. It asserts that every git_org value present in the metric store
+# (Mimir), the log store (Loki), and the conversation store (MLflow), within the
+# window the images capture,
 # is exactly the seeded marker "demo-seed". Any other value means real or
 # unseeded telemetry is in the window, and an expanded Grafana panel or log line
 # would reveal a real email address, user identifier, or repository name into a
@@ -55,8 +56,9 @@
 #   GRAFANA_USER          Grafana login user. Defaults to admin.
 #   GRAFANA_PASSWORD      Grafana login password. Defaults to admin.
 #   CAPTURE_WINDOW_SECS   The look-back window, in seconds, the leak check and the
-#                         dashboard both use. Defaults to 21600 (6h), matching the
-#                         dashboard's own default range.
+#                         dashboard both use. Defaults to 7200 (2h), which matches
+#                         the span the seed and the importer write. A wider window
+#                         leaves the time series panels mostly empty.
 #   CAPTURE_DIFF_MAX      --verify only. The largest pixel-difference percentage
 #                         that still counts as reproduced. Defaults to 8. A live
 #                         re-seed moves timestamps and the MLflow-computed latency,
@@ -139,7 +141,12 @@ edge_port="$(resolve_edge_port)"
 base_url="http://127.0.0.1:${edge_port}"
 grafana_user="${GRAFANA_USER:-admin}"
 grafana_password="${GRAFANA_PASSWORD:-admin}"
-window_secs="${CAPTURE_WINDOW_SECS:-21600}"
+# 7200s (2h) rather than 6h. The seed writes about 1.5 hours of activity and the
+# importer compresses onto the same span, so a 6h window left two thirds of every
+# time series panel empty. The window is also the leak check's window, so the two
+# stay aligned by construction: the check always covers at least what the capture
+# shows.
+window_secs="${CAPTURE_WINDOW_SECS:-7200}"
 diff_max="${CAPTURE_DIFF_MAX:-8}"
 
 # --- Constants ---------------------------------------------------------------
@@ -193,6 +200,19 @@ git_org_values_loki() {
 		| jq -r '.data[]?' 2>/dev/null || true
 }
 
+# The conversation image is captured from MLflow, which is a third store. It is
+# NOT time-windowed like the other two: a trace written days ago is still the
+# first row of the list a capture photographs, long after the metric and log
+# stores have aged out. So every trace in the experiment is inspected, not a
+# window of them. A trace carrying no git.org tag is reported as "untagged" and
+# refuses, because an untagged trace is one this repository did not write.
+git_org_values_mlflow() {
+	curl -s --max-time 15 -X POST "${base_url}/mlflow/api/3.0/mlflow/traces/search" \
+		-H 'Content-Type: application/json' \
+		-d '{"locations":[{"type":"MLFLOW_EXPERIMENT","mlflow_experiment":{"experiment_id":"1"}}],"max_results":500}' \
+		| jq -r '.traces[]? | (.tags["git.org"] // .info.tags["git.org"] // "untagged")' 2>/dev/null || true
+}
+
 assert_only_seeded() {
 	require_stack
 
@@ -222,12 +242,13 @@ assert_only_seeded() {
 	fi
 
 	info "leak check: asserting the stack holds only git_org in {${permitted}} in the last ${window_secs}s window (port ${edge_port})"
-	local mimir loki unseeded=""
+	local mimir loki mlflow unseeded=""
 	mimir="$(git_org_values_mimir)"
 	loki="$(git_org_values_loki)"
+	mlflow="$(git_org_values_mlflow | sort -u)"
 
 	local store name
-	for store in "mimir:${mimir}" "loki:${loki}"; do
+	for store in "mimir:${mimir}" "loki:${loki}" "mlflow:${mlflow}"; do
 		name="${store%%:*}"
 		while IFS= read -r val; do
 			[ -z "$val" ] && continue
@@ -247,6 +268,9 @@ assert_only_seeded() {
 	fi
 
 	# A stack with no seeded data at all would capture empty panels; catch that too.
+	# Scoped to the metric and log stores on purpose: MLflow holding a trace does
+	# not mean the dashboard has anything to show, and the dashboard is the image
+	# most likely to be captured empty.
 	local have_data=0 want
 	for want in $permitted; do
 		if printf '%s\n' "$mimir" "$loki" | grep -qx "$want"; then have_data=1; fi
@@ -330,7 +354,16 @@ nav_mlflow() {
 	ab wait --load networkidle >/dev/null || true
 	ab wait --text "Add a health check endpoint" >/dev/null 2>&1 || true
 	ab wait 2500 >/dev/null
-	# Dismiss any first-visit guidance popovers on the trace list before the click,
+	# Prevent the first-visit guidance popover rather than dismiss it. MLflow
+	# records that a user has seen it in localStorage, so setting the key makes
+	# this session behave like a returning one. Preventing beats dismissing: a
+	# popover that never renders cannot intercept a click, and the key is named
+	# for the feature rather than for a class that changes between builds.
+	ab eval 'localStorage.setItem("mlflow.detectIssues.guidanceShown_v1","true"); "ok"' >/dev/null 2>&1 || true
+	ab open "${base_url}/mlflow/#/experiments/1/traces" >/dev/null 2>&1 || true
+	ab wait --load networkidle >/dev/null 2>&1 || true
+	ab wait 2000 >/dev/null
+	# Belt and braces: if the key did not take, dismiss the popover the old way,
 	# otherwise the click lands on the popover rather than on the trace.
 	ab find text "Got it" click >/dev/null 2>&1 || true
 	ab find text "Close guidance" click >/dev/null 2>&1 || true
@@ -354,6 +387,14 @@ nav_mlflow() {
 	# cost detail; the Attributes panel of a turn span shows tokens.input,
 	# tokens.output, cost_usd, and latency_ms, which is what AC-4 requires in frame
 	# alongside the turn and tool structure the left-hand span tree keeps visible.
+	# MLflow 3.15 opens an Assistant side panel and a feature tooltip that both
+	# survive into the captured frame. The Assistant answers to its accessible
+	# name; the tooltip closes when focus moves, so click a neutral part of the
+	# trace pane rather than pressing Escape, which it ignores.
+	ab find role button click --name "Close" >/dev/null 2>&1 || true
+	ab wait 800 >/dev/null
+	ab find text "Trace breakdown" click >/dev/null 2>&1 || true
+	ab wait 800 >/dev/null
 	ab find text "Details & Timeline" click >/dev/null 2>&1 || true
 	ab wait 1500 >/dev/null
 	ab find text "assistant_turn_1" click >/dev/null 2>&1 || true
@@ -426,5 +467,9 @@ else
 	write_image "$DASH_PATH" "dashboard"
 	nav_mlflow
 	write_image "$MLFLOW_PATH" "MLflow conversation"
-	pass "wrote ${DASH_PATH} and ${MLFLOW_PATH} from seeded synthetic data only."
+	if [ "${CAPTURE_ALLOW_IMPORT:-0}" = "1" ]; then
+		pass "wrote ${DASH_PATH} and ${MLFLOW_PATH}. Permitted markers were ${DEMO_ORG} and ${IMPORT_ORG}, so a frame may show imported real sessions."
+	else
+		pass "wrote ${DASH_PATH} and ${MLFLOW_PATH} from seeded synthetic data only."
+	fi
 fi
