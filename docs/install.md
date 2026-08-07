@@ -145,8 +145,8 @@ row is populated. Every seeded series and stream carries the marker
 `git_org="demo-seed"`, so you can always tell demo data from your own. When you
 are done, clear it:
 
-```bash
-./scripts/demo.seed.sh --clear
+```console
+$ ./scripts/demo.seed.sh --clear
 ```
 
 The clear path resets the seeded metric series to zero and removes the seeded

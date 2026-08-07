@@ -200,6 +200,37 @@ Record only when the point is a transition: moving between views, a panel
 filling in, a trace expanding. A still image proves an end state better than a
 video does, and costs far less to review.
 
+### What to show, and in what order
+
+The walkthrough has one job: make someone want to run this. It is not a tour of
+the interface, and it is not a feature list. Four beats, and the order is the
+argument, because each one answers the question the previous one raises.
+
+| Beat | View | The question it answers |
+|---|---|---|
+| 1 | Dashboard, Overview row | What are my agents costing me? |
+| 2 | Dashboard, Delegation row | Where did that go? |
+| 3 | Grafana trace waterfall | What happened inside one session? |
+| 4 | MLflow conversation | What did it actually say? |
+
+The arc zooms in: a number, then a breakdown, then one session, then one
+sentence. A viewer who stops after any beat has still learned something true.
+
+Beat 3 is the one that earns attention. A coding agent drawn as a distributed
+trace, with tool calls and subagents on one timeline, is the thing nobody
+expects to see. Give it the most time.
+
+Two things to leave out, and the reason matters more than the list. **Anything
+that is a fix rather than a capability** does not belong: it is interesting to
+the maintainer and meaningless to a newcomer. **Anything requiring explanation
+to be impressive** does not belong either, because a silent recording cannot
+explain. If a beat needs a caption, it is the wrong beat.
+
+Hold each view still long enough to read. A view that appears and moves on
+before the eye lands on it is worse than not showing it. Roughly: a headline
+number needs two seconds, a chart with labels needs four, a waterfall needs
+longer because the viewer is reading structure rather than a value.
+
 Set the viewport before you start recording, or the video will not match it.
 Give `record start` an absolute path.
 
@@ -215,6 +246,55 @@ You cannot report anything that falls between two frames.
 Look for the failures a recording introduces and a still does not: a panel still
 loading, a cursor parked over a tooltip, an overlay that opened mid-run, a
 transition that happened too fast to read.
+
+**Review with a contact sheet, not frame by frame.** One tiled image shows the
+whole recording at a glance and costs a single look:
+
+```bash
+ffmpeg -v error -i /abs/run.webm -vf "fps=1/3,scale=300:-1,tile=8x4" -frames:v 1 /abs/contact.png
+```
+
+At one frame per three seconds, eight per row, each row is 24 seconds. That is
+enough to find where each beat starts and where the dead time is.
+
+### Record loose, then cut
+
+Do not try to record the finished timing. Every driver command carries seconds
+of its own overhead, so a recording aimed at 35 seconds lands near 90, and the
+overhead falls between the beats rather than inside them.
+
+Record with generous holds, then cut the segments you want and concatenate. Two
+things follow from this, and both are improvements rather than compromises:
+
+* Overlay dismissals, stray clicks, and navigation can happen on camera, because
+  those frames end up on the cutting-room floor. You no longer have to fight an
+  interface into a clean state while recording.
+* Pacing becomes a decision rather than an accident. You choose how long each
+  beat holds after seeing what it looks like.
+
+```bash
+ffmpeg -v error -ss 28 -t 11 -i run.webm -c:v libx264 -preset slow -crf 22 \
+  -pix_fmt yuv420p -r 10 -an seg3.mp4
+# then: printf "file 'seg1.mp4'\n..." > concat.txt
+ffmpeg -v error -f concat -safe 0 -i concat.txt -c copy walkthrough.mp4
+```
+
+### The animated fallback
+
+Produce a GIF as well as the video, because many surfaces that render Markdown
+do not play video. Generate a palette first: a naive conversion destroys small
+text, which is most of what a screen recording contains.
+
+```bash
+ffmpeg -v error -i walkthrough.mp4 -vf "fps=8,scale=800:-1:flags=lanczos,palettegen=stats_mode=diff" palette.png
+ffmpeg -v error -i walkthrough.mp4 -i palette.png \
+  -lavfi "fps=8,scale=800:-1:flags=lanczos[x];[x][1:v]paletteuse=dither=bayer:bayer_scale=3:diff_mode=rectangle" \
+  walkthrough.gif
+```
+
+Eight frames per second at 800 wide keeps a 37 second walkthrough near 3 MB and
+the text readable. Check the size before committing; a GIF that dwarfs the
+repository is not a fallback, it is a problem.
 
 ## Step 6: report
 
