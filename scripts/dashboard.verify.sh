@@ -91,7 +91,11 @@ grafana_password="${GRAFANA_PASSWORD:-admin}"
 # populated family MUST return data; an empty family MUST execute and return an
 # explicit empty result. A metric target that names a family in neither set is a
 # typo or a rename and is a failure, which is what catches a broken panel.
-populated_families="cost_usage_USD token_usage_tokens session_count active_time_seconds"
+# The seeder emits every family below on every run, so a panel querying one of
+# them must show data. subagent_* and tool_use_count joined this list when the
+# Delegation row was added: the seeder writes them for a share of its sessions,
+# so they are populated rather than optional.
+populated_families="cost_usage_USD token_usage_tokens session_count active_time_seconds subagent_duration_seconds subagent_token_usage_tokens tool_use_count"
 empty_families="lines_of_code_count code_edit_tool_decision commit_count pull_request_count"
 
 # --- Reporting helpers -------------------------------------------------------

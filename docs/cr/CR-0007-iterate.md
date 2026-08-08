@@ -148,12 +148,37 @@ worktree: "/Users/desek/Repo/desek/experiments/agent-observability"
 
 * **Supersedes:** nothing. Attempt 4 introduced the importer this completes.
 
+### Attempt 6 — make the stack explorable, and surface the data that had no view
+
+* **Change:** `stack/mimir/rules/agent-continuous.yaml` with `scripts/rules.provision.sh`, loaded by `scripts/stack.up.sh`. A Delegation row on the dashboard with three bar gauges. `scripts/demo.seed.sh` now emits the subagent and tool families and writes a ten-span trace instead of a two-span one. `session_id` set on both the seeded and the imported MLflow conversations. `docs/images/trace-waterfall.png` added to the front page. `scripts/dashboard.verify.sh` allowlist extended. Also `skills/observability-capture/SKILL.md` and its command, written in the previous attempt and committed here.
+
+* **Reason:** an exploration of both interfaces asked which views would make a newcomer look twice. Three answers came back, and one of them was a defect rather than an opportunity.
+
+* **Evidence:** Grafana's Metrics Drilldown is the most inviting entry point in the product and it showed **every one of 248 metrics as "No data"**. The cause is the one this repository already documents: these counters are short-lived per-session series, so anything built on growth returns nothing. A visitor clicking the friendliest button concluded the stack collected nothing.
+
+  The ruler was already configured, so this became a fix rather than a warning. Ten recording rules evaluate `last_over_time` on a schedule and publish ordinary continuous series. Drilldown now shows charts with data and zero "No data" panels. The fresh-clone path was proved rather than assumed: the rules were deleted, `scripts/stack.up.sh` was run, and the count went from 0 to 10. A ruler failure warns and does not stop the stack, because the dashboard reads the raw counters directly.
+
+  Four subagent families and the tool-call family had no panel at all. That is the only data in the stack showing an agent delegating to another agent, and nothing rendered it. The Delegation row now does: `cr-phase-implementor` at 4.87 hours and 3.15M tokens, Bash at 2.02K calls.
+
+  The trace waterfall is the strongest view the stack has, and it was not on the front page. One session, ten spans, tool calls and subagents on one timeline. The seeder previously wrote two identical spans, which cannot show what a waterfall is for, so it now writes staggered children of differing lengths.
+
+  MLflow ships a Sessions view that read "No traces found". `session_id` is a first-class parameter stored as the `mlflow.trace.session` metadata key, and both writers were setting a tag instead. That view now reads 9 of 9.
+
+  `make ci` failed twice and was right both times. The dashboard verifier rejected the new panels because the subagent families were not in its allowlist; the list was extended rather than the check weakened, and the new families went in the group that must carry data. Separately the ruler rejected the first rule file with "rule group name must not be empty", which names the wrong thing: its API takes a single group rather than a `groups:` list. Both causes are recorded where the next reader will hit them.
+
+  `make ci` exits 0.
+
+* **Supersedes:** nothing.
+
 ## What Stands Now
 
 * The stack holds the real work: 34 imported sessions, 2815 tool calls, 57 subagents, cost computed from a pinned price table rather than invented.
 * Screenshot capture permits imported data only behind `CAPTURE_ALLOW_IMPORT=1`, which states that the prompt and response text in any captured image is real.
 * The importer writes MLflow conversation traces, so all four stores hold imported data. The captured conversation image still shows the trace list rather than an expanded conversation: two overlays intercept the click and the fix is the snapshot-and-ref workflow, diagnosed but not applied.
 * Screenshot capture drives a persistent browser session that is the real browser, protected only by navigating immediately before each frame. Pinning it to an isolated profile is the durable fix and is outstanding.
+* Exploration works: ten recording rules publish continuous series, so Metrics Drilldown and any rate-based tool show data rather than "No data" for the whole stack.
+* The delegation dimension has a view. The dashboard carries a Delegation row, and the seeder produces the data so a fresh clone sees it populated.
+* The front page shows the trace waterfall, which is the view that shows an agent session decomposed.
 * The metric store accepts back-dated samples up to 72 hours. Verified at 6, 24, 48, and 71 hours, with 100 hours correctly refused.
 * The seeded dataset spans about an hour and a half, which is the widest span every backend accepts without changing a storage setting. Loki is the binding constraint at roughly two hours, anchored to a chunk edge. Tempo accepts no history at all, so seeded traces are written at the present moment.
 * Back-dated samples older than roughly twelve hours are not immediately queryable. They become visible after the block ships and the store synchronises, which is up to fifteen minutes on the current settings. Anything that seeds history and then reads or photographs it must account for that delay, or the settings that govern it must change.

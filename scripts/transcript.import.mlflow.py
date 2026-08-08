@@ -77,14 +77,18 @@ def main():
 
         with mlflow.start_span(name="agent_conversation", span_type="AGENT") as root:
             root.set_inputs({"messages": [{"role": "user", "content": p} for p in prompts[:2]]})
+            # session_id is a first-class parameter, not a tag. MLflow stores it
+            # as the mlflow.trace.session metadata key, which is what the Sessions
+            # view groups on. Writing it as a tag instead leaves that view empty,
+            # which is how this importer originally left it.
             mlflow.update_current_trace(
+                session_id=s.get("id") or None,
                 tags={
                     "session_import": "true",
                     "git.org": "session-import",
                     "git.repo": s.get("repo") or "agent-observability",
-                    "session.id": s.get("id", "")[:8],
                     "model": model,
-                }
+                },
             )
             for idx in range(turns):
                 prompt = prompts[idx] if idx < len(prompts) else ""

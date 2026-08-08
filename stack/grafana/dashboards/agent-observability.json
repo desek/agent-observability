@@ -1125,6 +1125,168 @@
       ],
       "title": "Recent agent traces",
       "type": "table"
+    },
+    {
+      "type": "row",
+      "title": "Delegation and tools",
+      "collapsed": false,
+      "gridPos": {
+        "x": 0,
+        "y": 62,
+        "w": 24,
+        "h": 1
+      },
+      "panels": []
+    },
+    {
+      "type": "bargauge",
+      "title": "Time by subagent type",
+      "description": "How long each kind of subagent ran in total. This is the only view of an agent delegating to another agent; nothing else in the stack records it.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource_metrics}"
+      },
+      "gridPos": {
+        "x": 0,
+        "y": 63,
+        "w": 8,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource_metrics}"
+          },
+          "expr": "sort_desc(sum by (agent_type) (last_over_time(claude_code_subagent_duration_seconds_total{job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"}[$__range])))",
+          "legendFormat": "{{agent_type}}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "valueMode": "color"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "noValue": "No data. Delegation appears once an agent spawns a subagent."
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Tokens by subagent type",
+      "description": "Tokens each kind of subagent consumed. Read beside the time panel: a type can be slow and cheap, or fast and expensive.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource_metrics}"
+      },
+      "gridPos": {
+        "x": 8,
+        "y": 63,
+        "w": 8,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource_metrics}"
+          },
+          "expr": "sort_desc(sum by (agent_type) (last_over_time(claude_code_subagent_token_usage_tokens_total{job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"}[$__range])))",
+          "legendFormat": "{{agent_type}}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "valueMode": "color"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "noValue": "No data. Delegation appears once an agent spawns a subagent."
+        },
+        "overrides": []
+      }
+    },
+    {
+      "type": "bargauge",
+      "title": "Tool calls by tool",
+      "description": "Which tools the agents actually reach for. The shape is distinctive: a shell-heavy agent looks nothing like a research-heavy one.",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource_metrics}"
+      },
+      "gridPos": {
+        "x": 16,
+        "y": 63,
+        "w": 8,
+        "h": 9
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource_metrics}"
+          },
+          "expr": "sort_desc(sum by (tool) (last_over_time(claude_code_tool_use_count_total{job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\"}[$__range])))",
+          "legendFormat": "{{tool}}",
+          "instant": true
+        }
+      ],
+      "options": {
+        "displayMode": "gradient",
+        "orientation": "horizontal",
+        "showUnfilled": true,
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "valueMode": "color"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "short",
+          "color": {
+            "mode": "continuous-GrYlRd"
+          },
+          "noValue": "No data. Delegation appears once an agent spawns a subagent."
+        },
+        "overrides": []
+      }
     }
   ],
   "refresh": "",
