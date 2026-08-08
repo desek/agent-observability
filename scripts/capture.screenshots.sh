@@ -154,6 +154,11 @@ readonly DEMO_ORG="demo-seed"
 # The marker scripts/transcript.import.sh stamps on redacted real sessions.
 # Permitted in a capture only when CAPTURE_ALLOW_IMPORT=1; see assert_only_seeded.
 readonly IMPORT_ORG="session-import"
+# The MLflow experiment the conversation image is captured from. The leak check
+# and the navigation both read this, so the scope that is inspected and the
+# scope that is photographed cannot drift apart. Widening the capture to another
+# experiment means changing this one value, and the check follows.
+readonly MLFLOW_EXPERIMENT_ID="1"
 readonly VIEW_W=1440
 readonly VIEW_H=900
 # The dashboard is taller than one baseline viewport, and Grafana virtualizes
@@ -206,11 +211,55 @@ git_org_values_loki() {
 # stores have aged out. So every trace in the experiment is inspected, not a
 # window of them. A trace carrying no git.org tag is reported as "untagged" and
 # refuses, because an untagged trace is one this repository did not write.
+# A control that cannot see the whole store must refuse rather than report a
+# clean result over the part it happened to read. The signal travels on stdout
+# rather than in a variable, because the collector is called inside a command
+# substitution and a pipe, so anything it assigns is discarded with the two
+# subshells. An earlier version set a variable here and the refusal never fired.
+readonly BLIND_SPOT_SENTINEL="__mlflow_blind_spot__"
+
 git_org_values_mlflow() {
-	curl -s --max-time 15 -X POST "${base_url}/mlflow/api/3.0/mlflow/traces/search" \
-		-H 'Content-Type: application/json' \
-		-d '{"locations":[{"type":"MLFLOW_EXPERIMENT","mlflow_experiment":{"experiment_id":"1"}}],"max_results":500}' \
-		| jq -r '.traces[]? | (.tags["git.org"] // .info.tags["git.org"] // "untagged")' 2>/dev/null || true
+	local body token
+	# Scoped to the experiment the capture actually opens, which is the same
+	# constant the navigation uses. Checking every experiment sounds safer and is
+	# not: this stack also holds a pi experiment that real verification turns write
+	# to, and those traces cannot appear in a frame of the claude-code experiment.
+	# Refusing on them would block every capture after a check run, which trains a
+	# person to reach for the override. A control that is routinely overridden
+	# protects nothing.
+	#
+	# 500 is the server's maximum. Asking for more is rejected outright, and the
+	# rejection is a JSON error object rather than an empty result: piping it
+	# through a trace filter yields nothing, which reads exactly like a clean store.
+	# That is how this check was briefly made to pass while inspecting nothing at
+	# all, so the error branch below is the load-bearing part.
+	body="$(jq -n --arg exp "$MLFLOW_EXPERIMENT_ID" \
+		'{locations:[{type:"MLFLOW_EXPERIMENT", mlflow_experiment:{experiment_id:$exp}}], max_results:500}')"
+	local response
+	response="$(curl -s --max-time 30 -X POST "${base_url}/mlflow/api/3.0/mlflow/traces/search" \
+		-H 'Content-Type: application/json' --data-binary "$body" 2>/dev/null || true)"
+
+	# An error, an unparseable body, or a missing traces field all mean the same
+	# thing: this check did not see the store. None of them may be reported as a
+	# clean result.
+	local errcode
+	errcode="$(printf '%s' "$response" | jq -r '.error_code // empty' 2>/dev/null || true)"
+	if [ -n "$errcode" ]; then
+		printf '%s the trace search returned %s\n' "$BLIND_SPOT_SENTINEL" "$errcode"
+		return 0
+	fi
+	if ! printf '%s' "$response" | jq -e 'has("traces")' >/dev/null 2>&1; then
+		printf '%s the trace search returned no usable response\n' "$BLIND_SPOT_SENTINEL"
+		return 0
+	fi
+
+	# A page token means traces exist beyond the ones just read, and the unread
+	# remainder is exactly where an unpermitted trace would hide.
+	token="$(printf '%s' "$response" | jq -r '.next_page_token // empty' 2>/dev/null || true)"
+	if [ -n "$token" ]; then
+		printf '%s more traces exist than one page returns, so part of the store was not inspected\n' "$BLIND_SPOT_SENTINEL"
+	fi
+	printf '%s' "$response" | jq -r '.traces[]? | (.tags["git.org"] // .info.tags["git.org"] // "untagged")' 2>/dev/null || true
 }
 
 assert_only_seeded() {
@@ -260,6 +309,20 @@ assert_only_seeded() {
 			${store#*:}
 		EOF
 	done
+
+	local blind
+	# The `|| true` is load-bearing. This script runs under `set -o pipefail`, so a
+	# grep that matches nothing, which is the ordinary case, fails the whole
+	# pipeline and `set -e` then kills the script here. It did exactly that: the
+	# unseeded marker had already been found, and the run died silently before it
+	# could be reported, exiting 1 with no message. A refusal that prints nothing
+	# is indistinguishable from a crash.
+	blind="$(printf '%s\n' "$mlflow" | grep -F "$BLIND_SPOT_SENTINEL" | head -1 | sed "s/^${BLIND_SPOT_SENTINEL} //" || true)"
+	if [ -n "$blind" ]; then
+		fail "the conversation store could not be fully inspected: ${blind}." \
+			"the leak check must see every trace it might photograph. Narrow the store with 'scripts/demo.seed.sh --clear', or raise the page size in git_org_values_mlflow, then re-run." \
+			"re-run 'scripts/capture.screenshots.sh' and confirm it reports the leak check clear."
+	fi
 
 	if [ -n "$unseeded" ]; then
 		fail "unseeded telemetry is present in the ${window_secs}s capture window. Found git_org values other than '${DEMO_ORG}': ${unseeded}. Capturing now could publish a real email address, user identifier, prompt, or repository name into a public image, which cannot be recalled." \
@@ -350,7 +413,7 @@ nav_dashboard() {
 
 nav_mlflow() {
 	ab set viewport "$VIEW_W" "$MLFLOW_VIEW_H" >/dev/null
-	ab open "${base_url}/mlflow/#/experiments/1/traces" >/dev/null
+	ab open "${base_url}/mlflow/#/experiments/${MLFLOW_EXPERIMENT_ID}/traces" >/dev/null
 	ab wait --load networkidle >/dev/null || true
 	ab wait --text "Add a health check endpoint" >/dev/null 2>&1 || true
 	ab wait 2500 >/dev/null
@@ -360,7 +423,7 @@ nav_mlflow() {
 	# popover that never renders cannot intercept a click, and the key is named
 	# for the feature rather than for a class that changes between builds.
 	ab eval 'localStorage.setItem("mlflow.detectIssues.guidanceShown_v1","true"); "ok"' >/dev/null 2>&1 || true
-	ab open "${base_url}/mlflow/#/experiments/1/traces" >/dev/null 2>&1 || true
+	ab open "${base_url}/mlflow/#/experiments/${MLFLOW_EXPERIMENT_ID}/traces" >/dev/null 2>&1 || true
 	ab wait --load networkidle >/dev/null 2>&1 || true
 	ab wait 2000 >/dev/null
 	# Belt and braces: if the key did not take, dismiss the popover the old way,
