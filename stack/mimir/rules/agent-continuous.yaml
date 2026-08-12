@@ -1,0 +1,71 @@
+# Recording rules that make agent telemetry explorable.
+#
+# @agents-index Mimir recording rules that turn the short-lived, per-session agent counters into continuous series, so Grafana's Metrics Drilldown and any rate-based tool show data instead of "No data".
+#
+# The problem these solve. Every agent session emits a cumulative counter and
+# then stops. A session is a short-lived series carrying one or two samples, so
+# any query built on growth (rate, increase, irate) has nothing to measure and
+# returns an empty result. That is why the dashboard reads these counters with
+# last_over_time.
+#
+# Most tools do not know that. Grafana's Metrics Drilldown is the clearest case:
+# it is the most inviting entry point in Grafana, it promises exploration with no
+# PromQL to write, and against this data it renders every metric as "No data". A
+# visitor clicking it concludes the stack is empty rather than that the query
+# shape is wrong.
+#
+# The fix is to publish the answer rather than to document the question. Each
+# rule below evaluates last_over_time on a schedule, so the result is a normal
+# continuous series with a sample every interval. Those series chart correctly in
+# Drilldown, in Explore, in an alert, and in anything else that assumes ordinary
+# metric shape.
+#
+# Naming: the level:metric:operation convention, so a recorded series is
+# recognisable as recorded and never collides with a raw counter.
+#
+# Shape: this file is a single rule GROUP, not a `groups:` list. Mimir's ruler
+# configuration API takes one group per namespace upload and rejects a list with
+# "rule group name must not be empty", which reads as a naming fault rather than
+# a structural one. scripts/rules.provision.sh posts this file as-is.
+
+name: agent_observability_continuous
+# Every 30s. Frequent enough that a panel over a short range has several points
+# to draw, and cheap because each rule is one aggregation.
+interval: 30s
+rules:
+  # Headline totals. These answer "what has this machine spent" without the
+  # reader needing to know the counter shape.
+  - record: agent:cost_usd:sum
+    expr: sum(last_over_time({__name__=~"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total"}[6h]))
+
+  - record: agent:tokens:sum
+    expr: sum(last_over_time({__name__=~"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total"}[6h]))
+
+  - record: agent:sessions:sum
+    expr: sum(last_over_time({__name__=~"claude_code_session_count_total|pi_session_count_total"}[6h]))
+
+  # Breakdowns. Each keeps the one label that makes it worth exploring, so a
+  # drilldown on the series has something to split by.
+  - record: agent:tokens_by_type:sum
+    expr: sum by (type) (last_over_time({__name__=~"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total"}[6h]))
+
+  - record: agent:cost_usd_by_repo:sum
+    expr: sum by (git_repo) (last_over_time({__name__=~"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total"}[6h]))
+
+  - record: agent:cost_usd_by_model:sum
+    expr: sum by (model) (last_over_time({__name__=~"claude_code_cost_usage_USD_total|pi_cost_usage_USD_total"}[6h]))
+
+  # The subagent dimension. Nothing else in the stack shows an agent
+  # delegating to another agent, so these are the series most worth finding
+  # by exploration rather than by knowing to look.
+  - record: agent:subagent_seconds_by_type:sum
+    expr: sum by (agent_type) (last_over_time(claude_code_subagent_duration_seconds_total[6h]))
+
+  - record: agent:subagent_tokens_by_type:sum
+    expr: sum by (agent_type) (last_over_time(claude_code_subagent_token_usage_tokens_total[6h]))
+
+  - record: agent:subagent_count_by_type:sum
+    expr: sum by (agent_type) (last_over_time(claude_code_subagent_count_total[6h]))
+
+  - record: agent:tool_calls_by_tool:sum
+    expr: sum by (tool) (last_over_time(claude_code_tool_use_count_total[6h]))

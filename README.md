@@ -19,13 +19,25 @@ side by side.
 
 ![A coding-agent conversation opened in the MLflow interface, showing the user turn, two assistant turns, and a tool call as spans, with the trace status, latency, and the git.org demo-seed tag.](docs/images/mlflow-conversation.png)
 
-A short silent walkthrough of the working product, from the dashboard, into one
-log line, and into one conversation in MLflow:
+One agent session, drawn as a trace. The root span is the session; beneath it the
+tool calls and the subagents it delegated to appear on one timeline, so a run
+that took ten minutes can be read at a glance:
+
+![One coding-agent session shown as a Tempo trace waterfall in Grafana: a ten-minute agent_session root span with ten child spans beneath it, mixing tool calls such as Bash, Edit, Read, and Write with subagent spans for a reviewer, an implementor, and a validator, each drawn at its own start time and length.](docs/images/trace-waterfall.png)
+
+A short silent walkthrough, in four moves. What the agents cost, where that went
+by subagent and by tool, one session opened as a trace, and what the agent
+actually said:
 
 <video src="docs/images/walkthrough.mp4" controls muted playsinline width="100%"></video>
 
-If the video does not play inline where you are reading this, open
-[`docs/images/walkthrough.mp4`](docs/images/walkthrough.mp4) directly.
+If the video does not play inline where you are reading this, the same
+walkthrough is an animation:
+
+![A four-part walkthrough of the stack. The dashboard headline shows total cost, tokens, sessions, and active agent time. The view scrolls to the Delegation row, where bar gauges rank subagent types by time and tokens and rank tools by call count. One agent session then opens as a Tempo trace waterfall, with tool calls and subagent spans on a single timeline. Finally an MLflow conversation opens, showing the user turn, the assistant turns, and the tool call beneath them.](docs/images/walkthrough.gif)
+
+You can also open [`docs/images/walkthrough.mp4`](docs/images/walkthrough.mp4)
+directly.
 
 Every image and video in this repository is captured from a synthetic demo
 dataset by `scripts/demo.seed.sh` and the capture scripts, so no real prompt and

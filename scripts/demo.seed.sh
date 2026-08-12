@@ -311,6 +311,39 @@ seed_session_metrics() {
 	done
 	push_metric "$service_name" "$repo" "$branch" "${ns}.commit.count" asInt "$commits" "$sid_attr" "$ts_ns"
 	push_metric "$service_name" "$repo" "$branch" "${ns}.pull_request.count" asInt "$prs" "$sid_attr" "$ts_ns"
+
+	# Tool calls, split by tool. Nothing else says which tools an agent actually
+	# reaches for, and the shape is distinctive: a shell-heavy agent with a long
+	# edit tail looks nothing like a research-heavy one.
+	local tw
+	for tw in "Bash 34" "Edit 12" "Read 9" "Write 4" "Grep 3" "WebFetch 1"; do
+		local tname="${tw%% *}" tcount="${tw##* }" tattr
+		tcount="$((tcount + n))"
+		tattr="$(jq -n --arg t "$tname" --arg s "$sid" '[{key:"tool",value:{stringValue:$t}},{key:"session_id",value:{stringValue:$s}}]')"
+		[ "$zero" = "zero" ] && tcount=0
+		push_metric "$service_name" "$repo" "$branch" "${ns}.tool.use.count" asInt "$tcount" "$tattr" "$ts_ns"
+	done
+
+	# The subagent dimension. This is the one thing in the whole stack that shows
+	# an agent delegating to another agent, so the seed must produce it or a fresh
+	# clone cannot see the feature at all. Only some sessions delegate, which is
+	# what real work looks like.
+	if [ "$((n % 3))" -ne 0 ]; then
+		return 0
+	fi
+	local sa
+	for sa in "reviewer 3 620 41000 14" "implementor 2 1450 96000 31" "validator 1 380 22000 8"; do
+		# shellcheck disable=SC2086
+		set -- $sa
+		local atype="$1" acount="$2" asecs="$3" atoks="$4" atools="$5" aattr
+		asecs="$((asecs + n * 40))"; atoks="$((atoks + n * 900))"; atools="$((atools + n))"
+		if [ "$zero" = "zero" ]; then acount=0; asecs=0; atoks=0; atools=0; fi
+		aattr="$(jq -n --arg a "$atype" --arg s "$sid" '[{key:"agent_type",value:{stringValue:$a}},{key:"session_id",value:{stringValue:$s}}]')"
+		push_metric "$service_name" "$repo" "$branch" "${ns}.subagent.count" asInt "$acount" "$aattr" "$ts_ns"
+		push_metric "$service_name" "$repo" "$branch" "${ns}.subagent.duration.seconds" asDouble "$asecs" "$aattr" "$ts_ns"
+		push_metric "$service_name" "$repo" "$branch" "${ns}.subagent.token.usage.tokens" asInt "$atoks" "$aattr" "$ts_ns"
+		push_metric "$service_name" "$repo" "$branch" "${ns}.subagent.tool_use.count" asInt "$atools" "$aattr" "$ts_ns"
+	done
 }
 
 # --- Log emission ------------------------------------------------------------
@@ -379,32 +412,66 @@ seed_session_logs() {
 }
 
 # --- Trace emission ----------------------------------------------------------
-# Post one OTLP trace with a root span and a tool child span, so the dashboard's
-# "Recent agent traces" panel (matching resource.service.name) returns data.
+# Post one OTLP trace shaped like a real agent session: a root span with tool
+# children and subagent children beneath it, staggered and of differing lengths.
+#
+# Why the shape matters. A trace waterfall is the one view that shows an agent
+# session decomposed, and it is the view most likely to make a newcomer look
+# twice. A trace of two identical spans does not show that; a trace where a
+# subagent runs for minutes while tool calls come and go around it does. The
+# offsets and durations below are therefore deliberately uneven.
 hex() { head -c "$1" /dev/urandom | od -An -tx1 | tr -d ' \n'; }
 
 seed_session_trace() {
 	local agent="$1" repo="$2" branch="$3" ts_ns="$4"
 	local service_name
 	if [ "$agent" = "cc" ]; then service_name="claude-code"; else service_name="pi-coding-agent"; fi
-	local res trace_id root_id tool_id end_ns
+	local res trace_id root_id end_ns
 	res="$(resource_attrs_json "$service_name" "$repo" "$branch")"
-	trace_id="$(hex 16)"; root_id="$(hex 8)"; tool_id="$(hex 8)"
-	end_ns="$((ts_ns + 4200000000))"
+	trace_id="$(hex 16)"; root_id="$(hex 8)"
+	# Ten minutes of session, which is a realistic length for a piece of agent work.
+	end_ns="$((ts_ns + 600000000000))"
+
+	# Each entry is: name, start offset in ms, duration in ms.
+	local plan=(
+		"tool.Bash 0 42000"
+		"subagent.reviewer 15000 186000"
+		"tool.Edit 62000 28000"
+		"subagent.implementor 95000 243000"
+		"tool.Read 152000 9000"
+		"tool.Write 214000 15000"
+		"tool.Bash 268000 63000"
+		"subagent.validator 349000 121000"
+		"tool.Edit 480000 34000"
+	)
+
+	local spans_json="[]" entry
+	spans_json="$(jq -n --arg tid "$trace_id" --arg rid "$root_id" --arg start "$ts_ns" --arg end "$end_ns" \
+		'[{traceId:$tid, spanId:$rid, name:"agent_session", kind:1,
+		   startTimeUnixNano:$start, endTimeUnixNano:$end,
+		   attributes:[{key:"demo_seed",value:{stringValue:"true"}}]}]')"
+	for entry in "${plan[@]}"; do
+		# shellcheck disable=SC2086
+		set -- $entry
+		local sname="$1" soff="$2" sdur="$3" sid_hex sstart send
+		sid_hex="$(hex 8)"
+		sstart="$((ts_ns + soff * 1000000))"
+		send="$((sstart + sdur * 1000000))"
+		local kindattr="tool"
+		case "$sname" in subagent.*) kindattr="subagent" ;; esac
+		spans_json="$(jq -n --argjson acc "$spans_json" --arg tid "$trace_id" --arg rid "$root_id" \
+			--arg sid "$sid_hex" --arg nm "$sname" --arg st "$sstart" --arg en "$send" --arg ka "$kindattr" \
+			'$acc + [{traceId:$tid, spanId:$sid, parentSpanId:$rid, name:$nm, kind:1,
+			          startTimeUnixNano:$st, endTimeUnixNano:$en,
+			          attributes:[{key:"span.kind.agent",value:{stringValue:$ka}},
+			                      {key:"demo_seed",value:{stringValue:"true"}}]}]')"
+	done
+
 	local payload
-	payload="$(jq -n --argjson res "$res" --arg tid "$trace_id" --arg rid "$root_id" --arg toolid "$tool_id" \
-		--arg start "$ts_ns" --arg end "$end_ns" '{
+	payload="$(jq -n --argjson res "$res" --argjson spans "$spans_json" '{
 		resourceSpans: [{
 			resource: {attributes: $res},
-			scopeSpans: [{
-				scope: {name: "demo.seed"},
-				spans: [
-					{traceId:$tid, spanId:$rid, name:"agent_turn", kind:1, startTimeUnixNano:$start, endTimeUnixNano:$end,
-						attributes:[{key:"demo_seed",value:{stringValue:"true"}}]},
-					{traceId:$tid, spanId:$toolid, parentSpanId:$rid, name:"tool.Edit", kind:1, startTimeUnixNano:$start, endTimeUnixNano:$end,
-						attributes:[{key:"tool.name",value:{stringValue:"Edit"}}]}
-				]
-			}]
+			scopeSpans: [{scope: {name: "demo.seed"}, spans: $spans}]
 		}]
 	}')"
 	local code
@@ -454,8 +521,12 @@ final = "Added a /healthz endpoint to the demo web store service, with a test."
 
 with mlflow.start_span(name="demo_conversation", span_type="AGENT") as root:
     root.set_inputs({"messages": [{"role": "user", "content": user_msg}]})
+    # session_id is a first-class parameter, stored as the mlflow.trace.session
+    # metadata key. That key is what MLflow's Sessions view groups on, so a trace
+    # written without it leaves that whole view empty.
     mlflow.update_current_trace(
-        tags={"demo_seed": "true", "git.org": "demo-seed", "git.repo": "demo-web-store"}
+        session_id="demo-session-01",
+        tags={"demo_seed": "true", "git.org": "demo-seed", "git.repo": "demo-web-store"},
     )
 
     with mlflow.start_span(name="assistant_turn_1", span_type="LLM") as t1:

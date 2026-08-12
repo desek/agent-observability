@@ -127,6 +127,21 @@ while true; do
 	done
 
 	if [ -z "$pending_path" ]; then
+		# Load the recording rules now that the ruler answers. They turn the
+		# short-lived per-session counters into continuous series, without which
+		# Grafana's Metrics Drilldown renders the whole stack as "No data" and a
+		# newcomer concludes nothing is being collected. Provisioning here means a
+		# fresh clone gets them without anyone knowing to ask.
+		#
+		# A failure is reported and does not stop the stack: the dashboard reads
+		# the raw counters directly and works either way, so a ruler problem must
+		# not make a healthy stack look broken.
+		if [ -x "${script_dir}/rules.provision.sh" ]; then
+			if ! "${script_dir}/rules.provision.sh" >/dev/null 2>&1; then
+				echo "up: WARN the recording rules did not load; exploration views may show 'No data'."
+				echo "     Run 'scripts/rules.provision.sh' to see why. The dashboard is unaffected."
+			fi
+		fi
 		echo "up: PASS the stack is ready on ${base_url}"
 		exit 0
 	fi
