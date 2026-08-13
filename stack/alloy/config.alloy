@@ -23,9 +23,35 @@ otelcol.receiver.otlp "default" {
 	}
 
 	output {
-		metrics = [otelcol.processor.batch.default.input]
+		metrics = [otelcol.processor.transform.normalize_model.input]
 		logs    = [otelcol.processor.transform.readable_log_lines.input]
 		traces  = [otelcol.processor.batch.default.input]
+	}
+}
+
+// Normalize the model label: Claude Code emits model ids such as
+// claude-opus-4-8[1m] whose square brackets are regex metacharacters. A Grafana
+// template variable interpolated into a Prometheus =~ matcher escapes them in a
+// way Mimir does not match, so a panel filtered to a single bracketed model
+// returns no data. Rewrite the square brackets on the metric datapoint attribute
+// at ingest so the stored label value is regex-safe: the opening bracket becomes
+// a hyphen and the closing bracket is dropped, so claude-opus-4-8[1m] becomes
+// claude-opus-4-8-1m. Backtick raw strings hold the OTTL so the RE2 escapes read
+// naturally. A model with no brackets is left unchanged. Only metrics carry model
+// as a series dimension, so logs and traces are untouched.
+otelcol.processor.transform "normalize_model" {
+	error_mode = "ignore"
+
+	metric_statements {
+		context = "datapoint"
+		statements = [
+			`replace_pattern(attributes["model"], "\\[", "-") where attributes["model"] != nil`,
+			`replace_pattern(attributes["model"], "\\]", "") where attributes["model"] != nil`,
+		]
+	}
+
+	output {
+		metrics = [otelcol.processor.batch.default.input]
 	}
 }
 
