@@ -1,5 +1,5 @@
 /**
- * @agents-index Parses PI_OTEL_ENABLE, the standard OTEL_* exporter/endpoint/
+ * @agents-index Parses PI_AGENT_ENABLE_TELEMETRY, the standard OTEL_* exporter/endpoint/
  *   protocol/interval/resource variables, plus Claude-Code-analogous content and
  *   cardinality opt-in flags, into a single typed config with gRPC
  *   localhost:4317 (the standard OTLP gRPC port) defaults for the
@@ -28,7 +28,7 @@ export type OtelSignal = "metrics" | "logs" | "traces";
 export type ExporterSelection = "otlp" | "none";
 
 /**
- * Tri-state interpretation of the PI_OTEL_ENABLE master switch, needed for the
+ * Tri-state interpretation of the PI_AGENT_ENABLE_TELEMETRY master switch, needed for the
  * dynamic-default-enabled policy: an explicit on/off is honored verbatim, while
  * `unset` defers the decision to endpoint configuration and a collector health
  * probe (see {@link resolveEnabled}).
@@ -89,11 +89,11 @@ export interface CardinalityFlags {
  * Fully-resolved pi-opentelemetry configuration handed to the provider bootstrap and
  * the signal emitters.
  *
- * @property enabled - Parsed PI_OTEL_ENABLE truthiness (unset treated as false).
+ * @property enabled - Parsed PI_AGENT_ENABLE_TELEMETRY truthiness (unset treated as false).
  *   Retained for reference; the effective decision comes from
  *   {@link resolveEnabled}, which layers the dynamic-default-enabled policy over
  *   {@link enableSetting} and {@link endpointExplicit}.
- * @property enableSetting - Tri-state PI_OTEL_ENABLE (on | off | unset) driving
+ * @property enableSetting - Tri-state PI_AGENT_ENABLE_TELEMETRY (on | off | unset) driving
  *   the dynamic-default-enabled policy.
  * @property endpointExplicit - Whether OTEL_EXPORTER_OTLP_ENDPOINT was set,
  *   signalling operator intent to export even without a health probe.
@@ -170,11 +170,11 @@ export function isSet(value: string | undefined): boolean {
 }
 
 /**
- * Interpret PI_OTEL_ENABLE as a tri-state for the dynamic-default policy: unset
+ * Interpret PI_AGENT_ENABLE_TELEMETRY as a tri-state for the dynamic-default policy: unset
  * or blank is `unset` (defer), otherwise the same truthiness as {@link parseBool}
  * collapses to `on` or `off`.
  *
- * @param value - Raw PI_OTEL_ENABLE value, or undefined when unset.
+ * @param value - Raw PI_AGENT_ENABLE_TELEMETRY value, or undefined when unset.
  * @returns The tri-state enable setting.
  */
 export function parseEnableSetting(value: string | undefined): EnableSetting {
@@ -286,7 +286,7 @@ function resolveSignal(
  * Resolve whether telemetry should actually run, implementing the
  * dynamic-default-enabled policy:
  *
- * - PI_OTEL_ENABLE explicitly on or off is honored verbatim, with no probe.
+ * - PI_AGENT_ENABLE_TELEMETRY explicitly on or off is honored verbatim, with no probe.
  * - Unset with an explicit OTEL_EXPORTER_OTLP_ENDPOINT enables export: the
  *   operator configured a target, so intent is assumed.
  * - Unset with no endpoint enables export only when the local collector is
@@ -321,8 +321,8 @@ export function loadConfig(env: Env = process.env): OtelParityConfig {
   );
 
   return {
-    enabled: parseBool(env.PI_OTEL_ENABLE),
-    enableSetting: parseEnableSetting(env.PI_OTEL_ENABLE),
+    enabled: parseBool(env.PI_AGENT_ENABLE_TELEMETRY),
+    enableSetting: parseEnableSetting(env.PI_AGENT_ENABLE_TELEMETRY),
     endpointExplicit: isSet(env.OTEL_EXPORTER_OTLP_ENDPOINT),
     serviceName: firstSet(DEFAULT_SERVICE_NAME, env.OTEL_SERVICE_NAME),
     resourceAttributes: parseKeyValueList(env.OTEL_RESOURCE_ATTRIBUTES),

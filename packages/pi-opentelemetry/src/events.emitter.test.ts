@@ -34,7 +34,7 @@ const byBody = (records: Captured[], name: string) =>
 
 test("content-gating", () => {
   // Flags off: prompt/response/tool_parameters omitted; lengths still recorded.
-  const off = makeEmitter({ PI_OTEL_ENABLE: "1" });
+  const off = makeEmitter({ PI_AGENT_ENABLE_TELEMETRY: "1" });
   off.emitter.userPrompt({ prompt: "secret prompt" });
   off.emitter.messageEnd({
     message: { role: "assistant", model: "m", content: "secret response" },
@@ -53,7 +53,7 @@ test("content-gating", () => {
 
   // Flags on: content present.
   const on = makeEmitter({
-    PI_OTEL_ENABLE: "1",
+    PI_AGENT_ENABLE_TELEMETRY: "1",
     OTEL_LOG_USER_PROMPTS: "1",
     OTEL_LOG_ASSISTANT_RESPONSES: "1",
     OTEL_LOG_TOOL_DETAILS: "1",

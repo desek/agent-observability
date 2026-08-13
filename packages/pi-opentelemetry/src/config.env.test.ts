@@ -1,6 +1,6 @@
 /**
  * @agents-index Unit tests for config.env: verifies the gRPC localhost:4317
- *   (standard OTLP gRPC port) defaults, the PI_OTEL_ENABLE master switch, and
+ *   (standard OTLP gRPC port) defaults, the PI_AGENT_ENABLE_TELEMETRY master switch, and
  *   that the standard OTEL_*
  *   exporter/interval/resource variables are parsed into the typed config.
  *
@@ -44,10 +44,10 @@ test("defaults-to-grpc-standard-otlp-port", () => {
 
 test("master-switch-disables", () => {
   assert.equal(loadConfig({}).enabled, false);
-  assert.equal(loadConfig({ PI_OTEL_ENABLE: "0" }).enabled, false);
-  assert.equal(loadConfig({ PI_OTEL_ENABLE: "false" }).enabled, false);
-  assert.equal(loadConfig({ PI_OTEL_ENABLE: "1" }).enabled, true);
-  assert.equal(loadConfig({ PI_OTEL_ENABLE: "true" }).enabled, true);
+  assert.equal(loadConfig({ PI_AGENT_ENABLE_TELEMETRY: "0" }).enabled, false);
+  assert.equal(loadConfig({ PI_AGENT_ENABLE_TELEMETRY: "false" }).enabled, false);
+  assert.equal(loadConfig({ PI_AGENT_ENABLE_TELEMETRY: "1" }).enabled, true);
+  assert.equal(loadConfig({ PI_AGENT_ENABLE_TELEMETRY: "true" }).enabled, true);
 });
 
 test("parse-enable-setting-tri-state", () => {
@@ -61,13 +61,13 @@ test("parse-enable-setting-tri-state", () => {
 
 test("resolve-enabled-explicit-on-skips-probe", async () => {
   const { probe, calls } = stubProbe(false);
-  assert.equal(await resolveEnabled(loadConfig({ PI_OTEL_ENABLE: "1" }), probe), true);
+  assert.equal(await resolveEnabled(loadConfig({ PI_AGENT_ENABLE_TELEMETRY: "1" }), probe), true);
   assert.equal(calls.count, 0);
 });
 
 test("resolve-enabled-explicit-off-skips-probe", async () => {
   const { probe, calls } = stubProbe(true);
-  assert.equal(await resolveEnabled(loadConfig({ PI_OTEL_ENABLE: "0" }), probe), false);
+  assert.equal(await resolveEnabled(loadConfig({ PI_AGENT_ENABLE_TELEMETRY: "0" }), probe), false);
   assert.equal(calls.count, 0);
 });
 
@@ -90,7 +90,7 @@ test("resolve-enabled-dynamic-follows-health-probe", async () => {
 
 test("honors-standard-otel-vars", () => {
   const config = loadConfig({
-    PI_OTEL_ENABLE: "1",
+    PI_AGENT_ENABLE_TELEMETRY: "1",
     OTEL_SERVICE_NAME: "custom-service",
     OTEL_EXPORTER_OTLP_ENDPOINT: "http://collector:4317",
     OTEL_METRIC_EXPORT_INTERVAL: "5000",

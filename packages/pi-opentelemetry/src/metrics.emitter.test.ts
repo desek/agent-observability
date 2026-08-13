@@ -21,7 +21,7 @@ interface Add {
 }
 
 /** Build a MetricsEmitter wired to a fake Meter that records every add() by name. */
-function makeEmitter(env: Record<string, string> = { PI_OTEL_ENABLE: "1" }) {
+function makeEmitter(env: Record<string, string> = { PI_AGENT_ENABLE_TELEMETRY: "1" }) {
   const adds = new Map<string, Add[]>();
   const meter = {
     createCounter: (name: string) => ({

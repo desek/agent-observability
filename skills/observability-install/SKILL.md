@@ -180,7 +180,7 @@ pi needs a package, a master switch, and an endpoint. Plan to:
   pi install npm:@desek/pi-opentelemetry
   ```
 
-* Set the master switch `PI_OTEL_ENABLE` = `1`.
+* Set the master switch `PI_AGENT_ENABLE_TELEMETRY` = `1`.
 * Set `OTEL_EXPORTER_OTLP_ENDPOINT` = `http://localhost:<EDGE_PORT>`. The package
   defaults to the OpenTelemetry standard port 4317, not this stack's edge port,
   so you MUST point it at the edge port.
@@ -294,7 +294,7 @@ When a signal is missing, work this fixed list in order. Do not guess.
    metrics are dropped while logs and traces still arrive, so a missing metric
    alone points here.
 4. **The package is not installed** (pi only). Confirm
-   `@desek/pi-opentelemetry` is installed and the master switch `PI_OTEL_ENABLE`
+   `@desek/pi-opentelemetry` is installed and the master switch `PI_AGENT_ENABLE_TELEMETRY`
    is `1`.
 5. **The export interval has not elapsed.** Wait longer, or set the export
    intervals to `1000`, then drive one more turn.

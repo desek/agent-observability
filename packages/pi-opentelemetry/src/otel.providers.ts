@@ -303,7 +303,7 @@ function buildTraceExporter(
  * fallback sink (FR12); an unsupported protocol also emits an actionable
  * diagnostic and never throws, so one bad signal does not disable the others and
  * telemetry never breaks pi (FR15, NFR2). Callers must have already verified
- * PI_OTEL_ENABLE (FR11) before invoking this.
+ * PI_AGENT_ENABLE_TELEMETRY (FR11) before invoking this.
  *
  * @param config - Resolved pi-opentelemetry configuration.
  * @returns The initialized {@link OtelProviders} handle.
