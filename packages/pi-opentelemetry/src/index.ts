@@ -57,7 +57,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
   // Configuration comes from the process environment, with an optional
   // observability.json config file (global and project scope) supplying defaults
   // underneath it. An explicit environment variable always wins over the file.
-  const parsed = loadConfig(loadEffectiveEnv());
+  const parsed = loadConfig(await loadEffectiveEnv());
 
   // Dynamic default enabled: an explicit PI_AGENT_ENABLE_TELEMETRY wins; otherwise export is
   // enabled only when a target endpoint is configured or the local Alloy collector

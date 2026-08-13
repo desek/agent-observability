@@ -106,7 +106,7 @@ export default async function (pi: ExtensionAPI): Promise<void> {
     // Configuration comes from the process environment, with an optional
     // observability.json config file (global and project scope) supplying
     // defaults underneath it. An explicit environment variable wins over the file.
-    config = loadConfig(loadEffectiveEnv());
+    config = loadConfig(await loadEffectiveEnv());
   } catch {
     // A fault while reading configuration degrades to a no-op rather than
     // breaking pi startup (NFR1, NFR6).

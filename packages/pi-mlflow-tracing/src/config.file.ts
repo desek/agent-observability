@@ -19,12 +19,52 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { join } from "node:path";
 
-import { CONFIG_DIR_NAME, getAgentDir } from "@earendil-works/pi-coding-agent";
+// Note: @earendil-works/pi-coding-agent is a peer dependency and is imported
+// lazily inside resolvePiPaths() rather than at module top level. A top-level
+// value import would require the peer to be present the instant this module
+// loads, which breaks loading the extension in isolation (for example the
+// package install smoke test, which loads the manifest entry without the peer
+// installed). Only type-only imports from the peer are erased at runtime and
+// safe at top level.
 
 /** Environment map shape (a subset of `process.env`). */
 type Env = Record<string, string | undefined>;
+
+/** Default project config directory name when pi's CONFIG_DIR_NAME is unavailable. */
+const DEFAULT_CONFIG_DIR_NAME = ".pi";
+
+/**
+ * Resolve pi's agent config directory and project config directory name.
+ *
+ * Prefers pi's own `getAgentDir()` and `CONFIG_DIR_NAME` (which honor a
+ * rebranded distribution and the agent-dir environment override) by importing
+ * the peer lazily. When the peer is not present, for example when the extension
+ * entry is loaded in isolation, it falls back to replicating pi's default
+ * resolution: the `*_CODING_AGENT_DIR` override, else `~/.pi/agent`, and the
+ * default `.pi` config directory name. This never throws.
+ *
+ * @param processEnv - The process environment (for the agent-dir override).
+ * @returns The agent directory and the project config directory name.
+ */
+async function resolvePiPaths(
+  processEnv: Env = process.env,
+): Promise<{ agentDir: string; configDirName: string }> {
+  try {
+    const pi = await import("@earendil-works/pi-coding-agent");
+    return { agentDir: pi.getAgentDir(), configDirName: pi.CONFIG_DIR_NAME };
+  } catch {
+    // Peer absent: replicate pi's default agent-dir resolution without it.
+    const override = processEnv.PI_CODING_AGENT_DIR;
+    const agentDir =
+      override && override.trim() !== ""
+        ? override.replace(/^~(?=$|\/|\\)/, homedir())
+        : join(homedir(), DEFAULT_CONFIG_DIR_NAME, "agent");
+    return { agentDir, configDirName: DEFAULT_CONFIG_DIR_NAME };
+  }
+}
 
 /**
  * Name of the optional config file, read at both the global and project scope.
@@ -41,12 +81,14 @@ export const CONFIG_FILE_NAME = "observability.json";
  *
  * @property agentDir - pi's agent config directory (global scope root).
  * @property cwd - the launch directory (project scope root).
+ * @property configDirName - the project config directory name (defaults to `.pi`).
  * @property exists - existence check for a path (defaults to `existsSync`).
  * @property read - UTF-8 file reader for a path (defaults to `readFileSync`).
  */
 export interface FileEnvDeps {
   agentDir: string;
   cwd: string;
+  configDirName?: string;
   exists?: (path: string) => boolean;
   read?: (path: string) => string;
 }
@@ -105,8 +147,9 @@ export function loadFileEnv(deps: FileEnvDeps): Record<string, string> {
   const exists = deps.exists ?? existsSync;
   const read = deps.read ?? ((p: string) => readFileSync(p, "utf-8"));
 
+  const configDirName = deps.configDirName ?? DEFAULT_CONFIG_DIR_NAME;
   const globalPath = join(deps.agentDir, CONFIG_FILE_NAME);
-  const projectPath = join(deps.cwd, CONFIG_DIR_NAME, CONFIG_FILE_NAME);
+  const projectPath = join(deps.cwd, configDirName, CONFIG_FILE_NAME);
 
   const globalEnv = readOne(globalPath, exists, read);
   const projectEnv = readOne(projectPath, exists, read);
@@ -137,11 +180,15 @@ export function mergeEnv(fileEnv: Record<string, string>, processEnv: Env = proc
  *
  * @param cwd - The launch directory (defaults to `process.cwd()`).
  * @param processEnv - The process environment (defaults to `process.env`).
- * @returns The effective environment with environment variables winning.
+ * @returns A promise for the effective environment, environment variables winning.
  */
-export function loadEffectiveEnv(cwd: string = process.cwd(), processEnv: Env = process.env): Env {
+export async function loadEffectiveEnv(
+  cwd: string = process.cwd(),
+  processEnv: Env = process.env,
+): Promise<Env> {
   try {
-    const fileEnv = loadFileEnv({ agentDir: getAgentDir(), cwd });
+    const { agentDir, configDirName } = await resolvePiPaths(processEnv);
+    const fileEnv = loadFileEnv({ agentDir, cwd, configDirName });
     return mergeEnv(fileEnv, processEnv);
   } catch {
     return processEnv;
