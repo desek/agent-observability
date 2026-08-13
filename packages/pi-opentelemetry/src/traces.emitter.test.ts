@@ -48,7 +48,7 @@ test("span-nesting", () => {
     },
   } as never;
 
-  const emitter = new TracesEmitter(tracer, loadConfig({ PI_OTEL_ENABLE: "1" }));
+  const emitter = new TracesEmitter(tracer, loadConfig({ PI_AGENT_ENABLE_TELEMETRY: "1" }));
 
   emitter.beforeAgentStart({ prompt: "hi" });
   emitter.agentStart();

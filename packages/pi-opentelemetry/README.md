@@ -40,8 +40,8 @@ dependency clash. See [Troubleshooting](#troubleshooting).
 
 The extension is a hard no-op unless one of two conditions is met:
 
-1. `PI_OTEL_ENABLE` is set to a truthy value (the explicit master switch), or
-2. `PI_OTEL_ENABLE` is unset and the extension finds a target: either
+1. `PI_AGENT_ENABLE_TELEMETRY` is set to a truthy value (the explicit master switch), or
+2. `PI_AGENT_ENABLE_TELEMETRY` is unset and the extension finds a target: either
    `OTEL_EXPORTER_OTLP_ENDPOINT` is set, or a local collector answers a health
    probe. This is the dynamic default. It lets a machine that runs a collector
    export with no configuration, while a machine that runs no collector stays
@@ -51,7 +51,7 @@ The simplest explicit setup, exporting to a collector on the standard OTLP gRPC
 port:
 
 ```bash
-export PI_OTEL_ENABLE=1
+export PI_AGENT_ENABLE_TELEMETRY=1
 pi -p "say hi"
 ```
 
@@ -69,7 +69,7 @@ probe, so installing the extension alongside that stack exports nothing until
 you point it at the edge port:
 
 ```bash
-export PI_OTEL_ENABLE=1
+export PI_AGENT_ENABLE_TELEMETRY=1
 export OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:24317
 pi -p "say hi"
 ```
@@ -83,7 +83,7 @@ These four guarantees are what let you trust the extension in every pi session.
 Each is enforced in `src/index.ts` and `src/config.env.ts`.
 
 1. **Off by default.** The extension emits no signal and constructs no exporter
-   unless its master switch `PI_OTEL_ENABLE` is truthy, or the health-gated
+   unless its master switch `PI_AGENT_ENABLE_TELEMETRY` is truthy, or the health-gated
    dynamic default enables it.
 2. **Silent when the collector is absent.** With neither the switch nor an
    endpoint set, the extension probes the collector and stays silent when the
@@ -96,17 +96,44 @@ Each is enforced in `src/index.ts` and `src/config.env.ts`.
    or a malformed configuration is swallowed. No telemetry fault raises into the
    agent, blocks a turn, or changes agent behaviour.
 
+## Configuration file
+
+Every variable below can also be set in an optional `observability.json` file, so
+configuration is committable and per-project rather than only a launch-time
+environment variable. The file is a flat JSON object whose keys are the same
+variable names the extension reads:
+
+```json
+{
+  "PI_AGENT_ENABLE_TELEMETRY": "on",
+  "OTEL_EXPORTER_OTLP_ENDPOINT": "http://localhost:24317",
+  "OTEL_EXPORTER_OTLP_METRICS_TEMPORALITY_PREFERENCE": "cumulative"
+}
+```
+
+The file is read at two scopes and merged, project over global:
+
+| Scope | Path |
+|-------|------|
+| Global | `~/.pi/agent/observability.json` |
+| Project | `<project>/.pi/observability.json` |
+
+**An environment variable always wins over the file.** The file supplies
+defaults; an explicit environment variable at launch overrides the same key. A
+missing or malformed file is ignored, never an error.
+
 ## Configuration variables
 
 Every variable the extension reads, with its default and effect. Defaults are
-taken from `src/config.env.ts` and `src/health.alloy.ts`.
+taken from `src/config.env.ts` and `src/health.alloy.ts`. Each may be set in the
+environment or in `observability.json` above.
 
 ### Switch and endpoint
 
 | Variable | Default | Effect |
 |----------|---------|--------|
-| `PI_OTEL_ENABLE` | unset | Master switch. Truthy enables export, a false value (`0`, `false`, `no`, `off`, empty) disables it, unset defers to the dynamic default. |
-| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | Shared OTLP endpoint for all signals. When set while `PI_OTEL_ENABLE` is unset, it also enables export without a health probe. |
+| `PI_AGENT_ENABLE_TELEMETRY` | unset | Master switch. Truthy enables export, a false value (`0`, `false`, `no`, `off`, empty) disables it, unset defers to the dynamic default. |
+| `OTEL_EXPORTER_OTLP_ENDPOINT` | `http://localhost:4317` | Shared OTLP endpoint for all signals. When set while `PI_AGENT_ENABLE_TELEMETRY` is unset, it also enables export without a health probe. |
 | `OTEL_EXPORTER_OTLP_PROTOCOL` | `grpc` | Shared OTLP protocol for all signals. Supported values are `grpc` (the default) and `http/protobuf`. For `http/protobuf` the endpoint's `/v1/{metrics,logs,traces}` path is appended per signal. Any other value (for example `http/json`) is unsupported: that signal is not exported, an actionable message naming the value and the supported values is written to stderr, and the other signals are unaffected. |
 | `OTEL_EXPORTER_OTLP_HEADERS` | none | Comma-separated `key=value` headers applied to every exporter. |
 
@@ -228,7 +255,7 @@ on session shutdown, so a headless one-shot delivers its signals reliably.
 Drive one pi turn with telemetry enabled:
 
 ```bash
-export PI_OTEL_ENABLE=1
+export PI_AGENT_ENABLE_TELEMETRY=1
 # Set OTEL_EXPORTER_OTLP_ENDPOINT here if your collector is not on localhost:4317.
 pi -p "Print the word telemetry and nothing else."
 ```
@@ -271,10 +298,10 @@ The extension is installed and enabled but I see nothing.
   agent-observability edge-proxy stack, which uses a single edge port (default
   `24317`) rather than the standard OTLP ports. Set
   `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:24317`.
-- **The dynamic default kept it off.** With `PI_OTEL_ENABLE` unset and no
+- **The dynamic default kept it off.** With `PI_AGENT_ENABLE_TELEMETRY` unset and no
   endpoint set, the extension probes a local collector at
   `http://localhost:12345/-/healthy` (Grafana Alloy's default health route) and
-  stays off when nothing answers. Set `PI_OTEL_ENABLE=1` to force it on
+  stays off when nothing answers. Set `PI_AGENT_ENABLE_TELEMETRY=1` to force it on
   regardless of the probe.
 - **A duplicate `@opentelemetry/api` in the process.** If two different copies
   of `@opentelemetry/api` are resolved in one process, instrumentation registers

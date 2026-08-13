@@ -62,6 +62,37 @@ Unset the switch, and the extension is a no-op again on the next session:
 unset PI_MLFLOW_ENABLE
 ```
 
+## Configuration file
+
+Every `PI_MLFLOW_*` variable and `EDGE_PORT` can also be set in an optional
+`observability.json` file, so configuration is committable and per-project rather
+than only a launch-time environment variable. The file is a flat JSON object
+whose keys are the same variable names the extension reads:
+
+```json
+{
+  "PI_MLFLOW_ENABLE": "1",
+  "PI_MLFLOW_EXPERIMENT": "pi",
+  "EDGE_PORT": "24317"
+}
+```
+
+The file is read at two scopes and merged, project over global:
+
+| Scope | Path |
+|-------|------|
+| Global | `~/.pi/agent/observability.json` |
+| Project | `<project>/.pi/observability.json` |
+
+**An environment variable always wins over the file.** The file supplies
+defaults; an explicit environment variable at launch overrides the same key. A
+missing or malformed file is ignored, never an error.
+
+The file shares its name and scopes with the sibling `@desek/pi-opentelemetry`
+extension, so one `observability.json` can hold both extensions' keys. Because
+this extension records conversation content, keep `PI_MLFLOW_ENABLE` out of a
+committed project file unless every user of that project agrees to it.
+
 ## What it records
 
 When enabled, every prompt, every assistant response, and every tool input and

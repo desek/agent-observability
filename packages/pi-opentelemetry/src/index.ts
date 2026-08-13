@@ -1,6 +1,6 @@
 /**
  * @agents-index Default-export pi extension factory for pi-opentelemetry: reads the
- *   OTEL_* and PI_OTEL_ENABLE config, resolves the dynamic-default-enabled policy
+ *   OTEL_* and PI_AGENT_ENABLE_TELEMETRY config, resolves the dynamic-default-enabled policy
  *   (explicit switch wins, else a local Alloy health probe decides), merges
  *   self-derived git provenance under any explicit OTEL_RESOURCE_ATTRIBUTES, and
  *   only when enabled initializes the OTLP gRPC providers and registers an
@@ -20,6 +20,7 @@
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 
 import { loadConfig, resolveEnabled } from "./config.env.ts";
+import { loadEffectiveEnv } from "./config.file.ts";
 import { EventsEmitter } from "./events.emitter.ts";
 import { probeAlloyHealthy } from "./health.alloy.ts";
 import { MetricsEmitter } from "./metrics.emitter.ts";
@@ -53,9 +54,12 @@ function failSafe(fn: () => void): void {
  * @param pi - The pi ExtensionAPI handed to every extension factory.
  */
 export default async function (pi: ExtensionAPI): Promise<void> {
-  const parsed = loadConfig();
+  // Configuration comes from the process environment, with an optional
+  // observability.json config file (global and project scope) supplying defaults
+  // underneath it. An explicit environment variable always wins over the file.
+  const parsed = loadConfig(await loadEffectiveEnv());
 
-  // Dynamic default enabled: an explicit PI_OTEL_ENABLE wins; otherwise export is
+  // Dynamic default enabled: an explicit PI_AGENT_ENABLE_TELEMETRY wins; otherwise export is
   // enabled only when a target endpoint is configured or the local Alloy collector
   // is healthy, so an unconfigured machine emits nothing instead of hitting a dead
   // endpoint. Fail-safe: if the resolution itself throws, treat as disabled.

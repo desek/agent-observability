@@ -22,7 +22,7 @@
 /**
  * Name of the master switch environment variable. Unset or a false value keeps
  * the extension a hard no-op; a truthy value turns conversation tracing on. Named
- * to sit alongside the sibling package's PI_OTEL_ENABLE so the two pi extensions
+ * to sit alongside the sibling package's PI_AGENT_ENABLE_TELEMETRY so the two pi extensions
  * read the same way (FR2).
  */
 export const ENABLE_ENV = "PI_MLFLOW_ENABLE";

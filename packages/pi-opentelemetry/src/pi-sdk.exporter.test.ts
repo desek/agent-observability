@@ -262,7 +262,7 @@ function resetGlobalProviders(): void {
 
 /** Environment keys this test mutates; snapshotted and restored around each case. */
 const ENV_KEYS = [
-  "PI_OTEL_ENABLE",
+  "PI_AGENT_ENABLE_TELEMETRY",
   "OTEL_SERVICE_NAME",
   "OTEL_EXPORTER_OTLP_ENDPOINT",
   "OTEL_EXPORTER_OTLP_PROTOCOL",
@@ -315,7 +315,7 @@ test("pi loads the extension and all three signals reach the collector", async (
   try {
     await withEnv(
       {
-        PI_OTEL_ENABLE: "1",
+        PI_AGENT_ENABLE_TELEMETRY: "1",
         OTEL_SERVICE_NAME: SERVICE_NAME,
         OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${receiver.port}`,
       },
@@ -376,7 +376,7 @@ test("no-op when the master switch is off: nothing is exported and no error esca
   try {
     await withEnv(
       {
-        PI_OTEL_ENABLE: "0",
+        PI_AGENT_ENABLE_TELEMETRY: "0",
         OTEL_SERVICE_NAME: SERVICE_NAME,
         OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${receiver.port}`,
       },
@@ -408,7 +408,7 @@ test("silent when the collector is unreachable: no throw, and no error escapes",
 
   await withEnv(
     {
-      PI_OTEL_ENABLE: "1",
+      PI_AGENT_ENABLE_TELEMETRY: "1",
       OTEL_SERVICE_NAME: SERVICE_NAME,
       OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${deadPort}`,
     },
@@ -436,7 +436,7 @@ test("http/protobuf carries all three signals to an HTTP collector", async () =>
   try {
     await withEnv(
       {
-        PI_OTEL_ENABLE: "1",
+        PI_AGENT_ENABLE_TELEMETRY: "1",
         OTEL_SERVICE_NAME: SERVICE_NAME,
         OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${receiver.port}`,
         OTEL_EXPORTER_OTLP_PROTOCOL: "http/protobuf",
@@ -491,7 +491,7 @@ test("per-signal transport: metrics over HTTP and traces over gRPC in one run", 
   try {
     await withEnv(
       {
-        PI_OTEL_ENABLE: "1",
+        PI_AGENT_ENABLE_TELEMETRY: "1",
         OTEL_SERVICE_NAME: SERVICE_NAME,
         // Shared endpoint and default protocol (grpc) carry traces to the gRPC
         // receiver; metrics are overridden to HTTP on their own endpoint.
@@ -553,7 +553,7 @@ test("an unsupported protocol disables only that signal and never raises into pi
   try {
     await withEnv(
       {
-        PI_OTEL_ENABLE: "1",
+        PI_AGENT_ENABLE_TELEMETRY: "1",
         OTEL_SERVICE_NAME: SERVICE_NAME,
         OTEL_EXPORTER_OTLP_ENDPOINT: `http://127.0.0.1:${receiver.port}`,
         // Metrics select a value the extension does not support; traces and logs

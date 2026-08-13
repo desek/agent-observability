@@ -28,7 +28,7 @@ function makeFakePi() {
   return { pi: pi as never, handlers };
 }
 
-const ENV_KEYS = ["PI_OTEL_ENABLE", "OTEL_METRICS_EXPORTER", "OTEL_LOGS_EXPORTER", "OTEL_TRACES_EXPORTER"];
+const ENV_KEYS = ["PI_AGENT_ENABLE_TELEMETRY", "OTEL_METRICS_EXPORTER", "OTEL_LOGS_EXPORTER", "OTEL_TRACES_EXPORTER"];
 const saved: Record<string, string | undefined> = {};
 for (const k of ENV_KEYS) saved[k] = process.env[k];
 
@@ -41,14 +41,14 @@ afterEach(() => {
 
 test("handler-failsafe-and-flush", async () => {
   // Explicit master switch off: no probe, no handlers, nothing emitted (AC-11).
-  process.env.PI_OTEL_ENABLE = "0";
+  process.env.PI_AGENT_ENABLE_TELEMETRY = "0";
   const disabled = makeFakePi();
   await factory(disabled.pi);
   assert.equal(disabled.handlers.size, 0, "disabled factory registers no handlers");
 
   // Explicit on: async factory awaited; providers initialize and lifecycle +
   // flush handlers are registered. Explicit on skips the health probe.
-  process.env.PI_OTEL_ENABLE = "1";
+  process.env.PI_AGENT_ENABLE_TELEMETRY = "1";
   const enabled = makeFakePi();
   await factory(enabled.pi);
   assert.ok(enabled.handlers.has("agent_end"), "agent_end flush registered");

@@ -27,7 +27,7 @@ real turn.
 1. Install the extension project locally with
    `pi install npm:@desek/pi-opentelemetry -l --approve`. This is the exact
    command the skill names.
-2. Export the master switch `PI_OTEL_ENABLE=1` and the endpoint
+2. Export the master switch `PI_AGENT_ENABLE_TELEMETRY=1` and the endpoint
    `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:24417`.
 3. Drive one turn and assert the signals with
    `EDGE_PORT=24417 scripts/agent.verify.sh pi --drive`.
