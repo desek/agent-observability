@@ -3,10 +3,12 @@
   "separate-pull-requests": true,
   "packages": {
     "packages/pi-opentelemetry": {
-      "release-type": "node"
+      "release-type": "node",
+      "release-as": "0.2.0"
     },
     "packages/pi-mlflow-tracing": {
-      "release-type": "node"
+      "release-type": "node",
+      "release-as": "0.2.0"
     }
   }
 }
