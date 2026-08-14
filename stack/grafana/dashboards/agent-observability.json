@@ -517,7 +517,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 18,
+        "w": 24,
         "x": 0,
         "y": 16
       },
@@ -570,7 +570,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 24
+        "y": 41
       },
       "id": 10,
       "panels": [],
@@ -638,7 +638,7 @@
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 25
+        "y": 42
       },
       "id": 11,
       "options": {
@@ -731,7 +731,7 @@
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 25
+        "y": 42
       },
       "id": 12,
       "options": {
@@ -793,7 +793,7 @@
         "h": 6,
         "w": 6,
         "x": 0,
-        "y": 33
+        "y": 50
       },
       "id": 13,
       "options": {
@@ -857,7 +857,7 @@
         "h": 6,
         "w": 6,
         "x": 6,
-        "y": 33
+        "y": 50
       },
       "id": 14,
       "options": {
@@ -952,7 +952,7 @@
         "h": 6,
         "w": 12,
         "x": 12,
-        "y": 33
+        "y": 50
       },
       "id": 15,
       "options": {
@@ -990,7 +990,7 @@
         "h": 1,
         "w": 24,
         "x": 0,
-        "y": 39
+        "y": 56
       },
       "id": 16,
       "panels": [],
@@ -1013,7 +1013,7 @@
         "h": 12,
         "w": 12,
         "x": 0,
-        "y": 40
+        "y": 57
       },
       "id": 17,
       "options": {
@@ -1058,7 +1058,7 @@
         "h": 12,
         "w": 12,
         "x": 12,
-        "y": 40
+        "y": 57
       },
       "id": 18,
       "options": {
@@ -1103,7 +1103,7 @@
         "h": 10,
         "w": 24,
         "x": 0,
-        "y": 52
+        "y": 69
       },
       "id": 19,
       "options": {
@@ -1132,7 +1132,7 @@
       "collapsed": false,
       "gridPos": {
         "x": 0,
-        "y": 62,
+        "y": 79,
         "w": 24,
         "h": 1
       },
@@ -1148,7 +1148,7 @@
       },
       "gridPos": {
         "x": 0,
-        "y": 63,
+        "y": 80,
         "w": 8,
         "h": 9
       },
@@ -1198,7 +1198,7 @@
       },
       "gridPos": {
         "x": 8,
-        "y": 63,
+        "y": 80,
         "w": 8,
         "h": 9
       },
@@ -1248,7 +1248,7 @@
       },
       "gridPos": {
         "x": 16,
-        "y": 63,
+        "y": 80,
         "w": 8,
         "h": 9
       },
@@ -1289,18 +1289,62 @@
       }
     },
     {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 24
+      },
+      "id": 30,
+      "panels": [],
+      "title": "Tokens and cache",
+      "type": "row"
+    },
+    {
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource_metrics}"
       },
-      "description": "Average token throughput per type over the selected time range: for each token type (input, output, cache creation, cache read) the summed total (last sample of each series via last_over_time) divided by the range length in seconds. Each type is a separate tile and is scaled independently, so input and output stay readable next to the much larger cache-read figure. The agent, repository, branch, and model variables filter this panel. This panel covers Claude Code and pi. A per-second figure is derived from last_over_time rather than rate(), because each session is a short-lived cumulative series and rate() returns no value over an idle window. Source metric family: token_usage_tokens, split by the type label.",
+      "description": "Input and output tokens per time bucket. Output is drawn upward and input downward from a shared zero baseline (input is negated in the query). Each point is increase() over the bucket, so it counts tokens generated in that interval rather than a running total; idle intervals are blank because increase() needs more than one sample in the bucket. Output usually dwarfs input, so the input band is small. The agent, repository, branch, and model variables filter this panel. This panel covers Claude Code and pi. Source metric family: token_usage_tokens, types input and output.",
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": true,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 70,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
           "mappings": [],
-          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
+          "noValue": "No data in this interval. increase() only produces a value where a session emitted more than one sample in the bucket, so idle intervals are blank on purpose.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1312,28 +1356,57 @@
           },
           "unit": "short"
         },
-        "overrides": []
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "output"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "input"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "blue",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
       },
       "gridPos": {
         "h": 8,
-        "w": 6,
-        "x": 18,
-        "y": 16
+        "w": 16,
+        "x": 0,
+        "y": 25
       },
-      "id": 20,
+      "id": 31,
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calc": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "textMode": "value_and_name"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "none"
+        }
       },
       "pluginVersion": "11.2.0",
       "targets": [
@@ -1343,15 +1416,202 @@
             "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "sum by (type) (last_over_time({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\"}[$__range])) / $__range_s",
-          "instant": true,
-          "range": false,
-          "refId": "A",
-          "legendFormat": "{{type}}"
+          "expr": "sum(increase({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\", type=\"output\"}[$__interval]))",
+          "legendFormat": "output",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource_metrics}"
+          },
+          "editorMode": "code",
+          "expr": "-1 * sum(increase({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\", type=\"input\"}[$__interval]))",
+          "legendFormat": "input",
+          "range": true,
+          "refId": "B"
         }
       ],
-      "title": "Tokens per second by type",
-      "type": "stat"
+      "title": "Input and output tokens",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource_metrics}"
+      },
+      "description": "Cache hit ratio over the dashboard time range: cacheRead divided by (cacheRead + cacheCreation + input), the share of all prompt (input-side) tokens that were served from cache. Uses last_over_time over the range, consistent with the other range-scoped panels. The agent, repository, branch, and model variables filter this panel. Source metric family: token_usage_tokens, types cacheRead, cacheCreation, input.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 25
+      },
+      "id": 32,
+      "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calc": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": false,
+        "showThresholdMarkers": true
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource_metrics}"
+          },
+          "editorMode": "code",
+          "expr": "sum(last_over_time({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\", type=\"cacheRead\"}[$__range])) / sum(last_over_time({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\", type=~\"cacheRead|cacheCreation|input\"}[$__range]))",
+          "instant": true,
+          "range": false,
+          "refId": "A"
+        }
+      ],
+      "title": "Cache hit ratio",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource_metrics}"
+      },
+      "description": "Cache hit ratio per time bucket: cacheRead divided by (cacheRead + cacheCreation + input) computed from increase() over each bucket, so it reflects the cache hit ratio of tokens processed in that interval. Idle intervals are blank because increase() needs more than one sample in the bucket. The agent, repository, branch, and model variables filter this panel. Source metric family: token_usage_tokens, types cacheRead, cacheCreation, input.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 15,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "noValue": "No data in this interval. increase() only produces a value where a session emitted more than one sample in the bucket, so idle intervals are blank on purpose.",
+          "min": 0,
+          "max": 1,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 0.7
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
+            ]
+          },
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 24,
+        "x": 0,
+        "y": 33
+      },
+      "id": 33,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource_metrics}"
+          },
+          "editorMode": "code",
+          "expr": "sum(increase({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\", type=\"cacheRead\"}[$__interval])) / sum(increase({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\", type=~\"cacheRead|cacheCreation|input\"}[$__interval]))",
+          "legendFormat": "cache hit ratio",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Cache hit ratio over time",
+      "type": "timeseries"
     }
   ],
   "refresh": "",
