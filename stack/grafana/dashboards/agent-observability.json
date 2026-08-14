@@ -1618,7 +1618,7 @@
         "type": "prometheus",
         "uid": "${datasource_metrics}"
       },
-      "description": "Total token throughput as tokens per second over time, for monitoring the pattern across the day. Each point is increase() over the bucket converted to a per-second rate by dividing by the bucket length; idle intervals are filled with 0 (no tokens flowing is a true zero rate, not missing data) so the line stays continuous. Counts every token type, so cache reads dominate the height. Widen the range to see the daily shape; the bucket grows with the range and the line smooths. The agent, repository, branch, and model variables filter this panel. Source metric family: token_usage_tokens.",
+      "description": "Output (generated) token throughput as tokens per second over time, for monitoring the generation-rate pattern across the day. Each point is increase() of the output-type series over the bucket converted to a per-second rate by dividing by the bucket length; idle intervals are filled with 0 (no tokens generated is a true zero rate, not missing data) so the line stays continuous. Only the output token type is counted, so cache and input tokens are excluded. Widen the range to see the daily shape; the bucket grows with the range and the line smooths. The agent, repository, branch, and model variables filter this panel. Source metric family: token_usage_tokens, type output.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1700,13 +1700,13 @@
             "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "(sum(increase({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\"}[$__interval])) * 1000 / $__interval_ms) or vector(0)",
-          "legendFormat": "tokens/sec",
+          "expr": "(sum(increase({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\", type=\"output\"}[$__interval])) * 1000 / $__interval_ms) or vector(0)",
+          "legendFormat": "output tokens/sec",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Tokens per second",
+      "title": "Output tokens per second",
       "type": "timeseries"
     }
   ],
