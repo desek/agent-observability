@@ -517,7 +517,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
+        "w": 18,
         "x": 0,
         "y": 16
       },
@@ -1287,6 +1287,71 @@
         },
         "overrides": []
       }
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource_metrics}"
+      },
+      "description": "Average token throughput per type over the selected time range: for each token type (input, output, cache creation, cache read) the summed total (last sample of each series via last_over_time) divided by the range length in seconds. Each type is a separate tile and is scaled independently, so input and output stay readable next to the much larger cache-read figure. The agent, repository, branch, and model variables filter this panel. This panel covers Claude Code and pi. A per-second figure is derived from last_over_time rather than rate(), because each session is a short-lived cumulative series and rate() returns no value over an idle window. Source metric family: token_usage_tokens, split by the type label.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 18,
+        "y": 16
+      },
+      "id": 20,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calc": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "value_and_name"
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource_metrics}"
+          },
+          "editorMode": "code",
+          "expr": "sum by (type) (last_over_time({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\"}[$__range])) / $__range_s",
+          "instant": true,
+          "range": false,
+          "refId": "A",
+          "legendFormat": "{{type}}"
+        }
+      ],
+      "title": "Tokens per second by type",
+      "type": "stat"
     }
   ],
   "refresh": "",
