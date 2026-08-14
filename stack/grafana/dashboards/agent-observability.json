@@ -1391,7 +1391,7 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 16,
+        "w": 12,
         "x": 0,
         "y": 25
       },
@@ -1476,7 +1476,7 @@
         "h": 8,
         "w": 8,
         "x": 16,
-        "y": 25
+        "y": 33
       },
       "id": 32,
       "options": {
@@ -1579,9 +1579,9 @@
       },
       "gridPos": {
         "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 33
+        "w": 12,
+        "x": 12,
+        "y": 25
       },
       "id": 33,
       "options": {
@@ -1611,6 +1611,102 @@
         }
       ],
       "title": "Cache hit ratio over time",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${datasource_metrics}"
+      },
+      "description": "Total token throughput as tokens per second over time, for monitoring the pattern across the day. Each point is increase() over the bucket converted to a per-second rate by dividing by the bucket length; idle intervals are filled with 0 (no tokens flowing is a true zero rate, not missing data) so the line stays continuous. Counts every token type, so cache reads dominate the height. Widen the range to see the daily shape; the bucket grows with the range and the line smooths. The agent, repository, branch, and model variables filter this panel. Source metric family: token_usage_tokens.",
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 18,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "never",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "noValue": "No data. Run an agent session with telemetry on, then widen the time range.",
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 16,
+        "x": 0,
+        "y": 33
+      },
+      "id": 34,
+      "options": {
+        "legend": {
+          "calcs": [
+            "mean",
+            "max"
+          ],
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "single",
+          "sort": "none"
+        }
+      },
+      "pluginVersion": "11.2.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource_metrics}"
+          },
+          "editorMode": "code",
+          "expr": "(sum(increase({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\"}[$__interval])) * 1000 / $__interval_ms) or vector(0)",
+          "legendFormat": "tokens/sec",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Tokens per second",
       "type": "timeseries"
     }
   ],
