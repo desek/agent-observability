@@ -1306,7 +1306,7 @@
         "type": "prometheus",
         "uid": "${datasource_metrics}"
       },
-      "description": "Input and output tokens per time bucket. Output is drawn upward and input downward from a shared zero baseline (input is negated in the query). Each point is increase() over the bucket, so it counts tokens generated in that interval rather than a running total; idle intervals are blank because increase() needs more than one sample in the bucket. Output usually dwarfs input, so the input band is small. The agent, repository, branch, and model variables filter this panel. This panel covers Claude Code and pi. Source metric family: token_usage_tokens, types input and output.",
+      "description": "Input and output tokens per time bucket. Output is drawn upward and input downward from a shared zero baseline (input is negated in the query). Each point is increase() over the bucket, so it counts the tokens of that interval, not a running total. The axis is symmetric logarithmic, so one large bucket does not flatten the other band; read exact values from the tooltip. Input counts prompt tokens that were not served from cache, so it arrives in bursts. A bucket is zero while a session exports telemetry and uses no tokens, and blank when no session exported in it. Tokens that a session used while the stack received no samples are in the range totals but not in this panel. The agent, repository, branch, and model variables filter this panel. This panel covers Claude Code and pi. Source metric family: token_usage_tokens, types input and output.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1331,7 +1331,9 @@
             "lineWidth": 1,
             "pointSize": 5,
             "scaleDistribution": {
-              "type": "linear"
+              "type": "symlog",
+              "log": 10,
+              "linearThreshold": 1000
             },
             "showPoints": "auto",
             "spanNulls": false,
@@ -1344,7 +1346,7 @@
             }
           },
           "mappings": [],
-          "noValue": "No data in this interval. increase() only produces a value where a session emitted more than one sample in the bucket, so idle intervals are blank on purpose.",
+          "noValue": "No data in this interval. A bucket has a value only while an agent session exports telemetry to the running stack.",
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -1515,7 +1517,7 @@
         "type": "prometheus",
         "uid": "${datasource_metrics}"
       },
-      "description": "Cache hit ratio per time bucket: cacheRead divided by (cacheRead + cacheCreation + input) computed from increase() over each bucket, so it reflects the cache hit ratio of tokens processed in that interval. Idle intervals are blank because increase() needs more than one sample in the bucket. The agent, repository, branch, and model variables filter this panel. Source metric family: token_usage_tokens, types cacheRead, cacheCreation, input.",
+      "description": "Cache hit ratio per time bucket: cacheRead divided by (cacheRead + cacheCreation + input) computed from increase() over each bucket, so it reflects the cache hit ratio of the tokens of that interval. A bucket is blank when no prompt tokens were used in it, because the ratio has no denominator, and when no session exported in it. Tokens that a session used while the stack received no samples are in the Cache hit ratio gauge but not in this panel. The agent, repository, branch, and model variables filter this panel. Source metric family: token_usage_tokens, types cacheRead, cacheCreation, input.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1553,7 +1555,7 @@
             }
           },
           "mappings": [],
-          "noValue": "No data in this interval. increase() only produces a value where a session emitted more than one sample in the bucket, so idle intervals are blank on purpose.",
+          "noValue": "No data in this interval. A bucket has a value only while an agent session exports telemetry to the running stack.",
           "min": 0,
           "max": 1,
           "thresholds": {
@@ -1618,7 +1620,7 @@
         "type": "prometheus",
         "uid": "${datasource_metrics}"
       },
-      "description": "Output (generated) token throughput as tokens per second over time, for monitoring the generation-rate pattern across the day. Each point is increase() of the output-type series over the bucket converted to a per-second rate by dividing by the bucket length; idle intervals are filled with 0 (no tokens generated is a true zero rate, not missing data) so the line stays continuous. Only the output token type is counted, so cache and input tokens are excluded. Widen the range to see the daily shape; the bucket grows with the range and the line smooths. The agent, repository, branch, and model variables filter this panel. Source metric family: token_usage_tokens, type output.",
+      "description": "Output (generated) token throughput as tokens per second over time, for monitoring the generation-rate pattern across the day. Each point is increase() of the output-type series over the bucket, divided by the bucket length. Only the output token type is counted, so cache and input tokens are excluded. A bucket is zero while a session exports telemetry and generates nothing, and blank when no session exported in it, so a gap means that the stack has no measurement, not that the rate was zero. Tokens that a session generated while the stack received no samples are in the range totals but not in this panel. Widen the range to see the daily shape; the bucket grows with the range and the line smooths. The agent, repository, branch, and model variables filter this panel. Source metric family: token_usage_tokens, type output.",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -1700,7 +1702,7 @@
             "uid": "${datasource_metrics}"
           },
           "editorMode": "code",
-          "expr": "(sum(increase({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\", type=\"output\"}[$__interval])) * 1000 / $__interval_ms) or vector(0)",
+          "expr": "(sum(increase({__name__=~\"claude_code_token_usage_tokens_total|pi_token_usage_tokens_total\", job=~\"$agent\", git_repo=~\"$git_repo\", git_branch=~\"$git_branch\", model=~\"${model:regex}\", type=\"output\"}[$__interval])) * 1000 / $__interval_ms)",
           "legendFormat": "output tokens/sec",
           "range": true,
           "refId": "A"
