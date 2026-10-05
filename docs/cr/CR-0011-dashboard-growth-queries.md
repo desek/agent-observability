@@ -25,7 +25,7 @@ A verification of the branch on 2026-10-05 against a running stack with real Cla
 * The source data and the stored data agree. The token totals of one session in the local transcript were equal to the Mimir totals for all four token types.
 * The supported install path sets `OTEL_METRIC_EXPORT_INTERVAL=1000`, so a live session writes one sample each second. `increase()` over a bucket of 30 seconds or more therefore measures growth correctly. The panel sum was 97.2% of the true output token growth at 6 hours and 99.1% at 24 hours.
 * `increase()` over the full range is wrong for a total. Over 24 hours it returned 3.15 million output tokens where `last_over_time` returned 9.43 million, because `increase()` cannot see the first sample value of a series.
-* The verifier stops at its panel data check on `Time by subagent type`, a panel the branch does not change. The subagent families have no sample in the last 168 hours on this stack, and the verifier assumes that the demo seeder ran.
+* The verifier stops at its panel data check on `Time by subagent type`, a panel the branch does not change. The families `subagent_duration_seconds`, `subagent_token_usage_tokens`, and `tool_use_count` have no sample in the last 168 hours on this stack, and the verifier assumes that the demo seeder ran.
 * The verifier replaces `$__interval` before `$__interval_ms`, so the query of `Output tokens per second` becomes a query that does not parse.
 * `Output tokens per second` fills each empty bucket with zero. From 06:30 to 10:05 the stack was down while agents were active, and the panel showed that period as a zero rate.
 * `Input and output tokens` has one input spike of about 400,000 tokens at 24 hours. The linear axis makes the output band almost flat. The description says that output is usually much larger than input.
@@ -44,7 +44,8 @@ A verification of the branch on 2026-10-05 against a running stack with real Cla
 * `substitute_vars` in the verifier has no entry for `$__interval_ms`.
 * `Output tokens per second` ends its query with `or vector(0)`.
 * `Input and output tokens` uses a linear axis.
-* The descriptions of the three per-bucket panels say that an idle interval is blank because `increase()` needs more than one sample in the bucket.
+* The descriptions of the three per-bucket panels, and the no-data messages (`fieldConfig.defaults.noValue`) of panels 31 and 33, say that an idle interval is blank because `increase()` needs more than one sample in the bucket.
+* `CLAUDE.md` is a symbolic link to `AGENTS.md`, so the agent guide is one file.
 
 ## Proposed Change
 
@@ -65,16 +66,16 @@ The rule becomes two rules. A total over a range uses `last_over_time`. Growth p
 
 ### Functional Requirements
 
-1. The agent guide (`AGENTS.md` and `CLAUDE.md`, with the same text) **MUST** state that a total over a range uses `last_over_time`, and **MUST** give the reason: `increase` and `rate` cannot see the first sample value of a session series, and return nothing after the series stops.
+1. The agent guide (`AGENTS.md`, which `CLAUDE.md` links to, so one edit changes both) **MUST** state that a total over a range uses `last_over_time`, and **MUST** give the reason: `increase` and `rate` cannot see the first sample value of a session series, and return nothing after the series stops.
 2. The agent guide **MUST** state that growth per time bucket can use `increase` over the bucket, and **MUST** state the limit: tokens that a session used while the stack received no samples are in the totals but not in the per-bucket growth.
-3. Check 5 of the verifier **MUST** pass a metric target that uses `last_over_time`, and **MUST** pass a metric target that uses `increase` or `rate` only when each such call has the window `$__interval` or `$__rate_interval`.
+3. Check 5 of the verifier **MUST** pass a metric target that uses `last_over_time`, and **MUST** pass a metric target that uses `increase` or `rate` only when each such call has the window `$__interval` or `$__rate_interval`. A target that has `last_over_time` and also a growth operator over another window **MUST** fail.
 4. Check 5 of the verifier **MUST** fail a metric target that uses `increase` or `rate` over any other window, and **MUST** fail a metric target that uses none of `last_over_time`, `increase`, and `rate`.
-5. Check 3 of the verifier **MUST** decide from the store whether a populated family has samples in its query window. When the family has samples, the panel **MUST** return data. When the family has no sample, the check **MUST** pass with a message that is different from the message for returned data and from the message for a family in the empty set.
+5. Check 3 of the verifier **MUST** decide from the store whether a populated family has samples, with a probe by metric name over the same 168 hour window that the check substitutes into the panel query. When one or more of the families that a target names has samples, the panel **MUST** return data. When none has a sample, the check **MUST** pass with a message that is different from the message for returned data and from the message for a family in the empty set. The family `token_usage_tokens` is the exception: when it has no sample the check **MUST** fail, because a stack without token telemetry cannot prove any panel.
 6. `substitute_vars` **MUST** replace `$__interval_ms` with the millisecond value of its substitute for `$__interval`, before it replaces `$__interval`.
 7. The query of `Output tokens per second` **MUST NOT** fill an empty bucket with a constant zero.
-8. The `Input and output tokens` panel **MUST** use an axis scale on which the output band and the input band are both readable when one bucket is 100 times larger than the median bucket.
-9. The descriptions of `Input and output tokens`, `Cache hit ratio over time`, and `Output tokens per second` **MUST** state when a bucket is zero and when it is blank, and **MUST** state the limit of requirement 2. The description of `Input and output tokens` **MUST NOT** say that output is usually larger than input.
-10. The header comment of the verifier **MUST** describe checks 3 and 5 as they behave after this change.
+8. The `Input and output tokens` panel **MUST** set `fieldConfig.defaults.custom.scaleDistribution.type` to `symlog`, the non-linear scale that accepts the negative input series, so that one large bucket does not flatten the other band.
+9. The descriptions of `Input and output tokens`, `Cache hit ratio over time`, and `Output tokens per second` **MUST** state when a bucket is zero and when it is blank, and **MUST** state the limit of requirement 2. The description of `Input and output tokens` **MUST NOT** say that output is usually larger than input. The no-data messages of panels 31 and 33 **MUST NOT** state the claim about more than one sample in the bucket, and **MUST** agree with the descriptions.
+10. Each text in the verifier that states the old behaviour **MUST** state the new behaviour: the header comment, the `@agents-index` line, the comment above the family lists, the fix text of the check 3 failure, the name of the check 5 function, and the pass message of check 5.
 
 ### Non-Functional Requirements
 
@@ -83,7 +84,7 @@ The rule becomes two rules. A total over a range uses `last_over_time`. Growth p
 
 ## Affected Components
 
-* `AGENTS.md`, `CLAUDE.md`
+* `AGENTS.md` (`CLAUDE.md` is a symbolic link to it)
 * `scripts/dashboard.verify.sh`
 * `stack/grafana/dashboards/agent-observability.json` (panels 31, 33, 34)
 
@@ -99,6 +100,8 @@ The rule becomes two rules. A total over a range uses `last_over_time`. Growth p
 * Panels that the branch does not change, and the Mimir recording rules.
 * Recovery of tokens that sessions used while the stack was down. The stores have no backfill path.
 * Verification with pi data. The stack holds no pi sample after 2026-08-13.
+* The comment in `scripts/agent.verify.sh` about `last_over_time`. It explains the presence check of that script, which is a range total, so it stays true.
+* A minimum interval on the three panels. The datasource sets a 10 second minimum, which holds ten samples at the supported export interval.
 * A CI job for the verifier. The verifier needs a running stack.
 * The uncommitted change to `stack/haproxy/haproxy.cfg`, and CR-0010.
 
@@ -157,7 +160,7 @@ Not applicable. No check is removed.
 ### AC-1: The verifier passes on the branch
 
 ```gherkin
-Given a running stack that holds Claude Code telemetry and no subagent sample in the last 168 hours
+Given a running stack that holds Claude Code telemetry and no sample of the subagent families or of tool_use_count in the last 168 hours
 When scripts/dashboard.verify.sh runs
 Then it exits 0
   And it prints "verify: all checks passed"
@@ -166,8 +169,8 @@ Then it exits 0
 ### AC-2: A growth operator over the range fails
 
 ```gherkin
-Given a copy of the dashboard in which one target uses increase over $__range
-When check 5 of the verifier runs on it
+Given the committed dashboard file with one target temporarily changed to use increase over $__range
+When scripts/dashboard.verify.sh runs, and the temporary change is then reverted
 Then the verifier exits 1
   And the failure names the panel, the fix, and what to check after the fix
 ```
@@ -204,7 +207,16 @@ Then the panel shows no line for that period
 ```gherkin
 Given a 24 hour range that contains one input bucket 100 times larger than the median
 When the Input and output tokens panel renders
-Then the output band and the input band are both visible above and below zero
+Then jq reads the scale type of panel 31 as "symlog"
+  And the screenshot of the panel shows the output band above zero and the input band below zero
+```
+
+### AC-7: The no-data messages agree with the descriptions
+
+```gherkin
+Given panels 31, 33, and 34 in the dashboard JSON
+When a reader searches their description and noValue texts for "more than one sample"
+Then the search returns nothing
 ```
 
 ## Quality Standards Compliance
