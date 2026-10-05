@@ -71,12 +71,21 @@ Both families also carry the four git provenance labels `git_org`, `git_repo`,
 
 ### The one query fact that matters most
 
-Query these counters with `last_over_time`, never with `rate` or `increase`.
-Each agent session is a short-lived series that reports a cumulative total and
-then stops, so `rate` and `increase` see no growth and return zero. `sum by
-(type) (last_over_time(claude_code_token_usage_tokens_total[24h]))` returns the
+For a total over a range, query these counters with `last_over_time`, never
+with `rate` or `increase`. Each agent session is its own series: it reports a
+cumulative total, often with a first sample that is already above zero, and
+then stops. `increase` cannot see that first value and `rate` returns nothing
+after the series stops, so both undercount a total. `sum by (type)
+(last_over_time(claude_code_token_usage_tokens_total[24h]))` returns the
 per-type totals; `sum(rate(claude_code_token_usage_tokens_total[5m]))` returns
-an empty result on this data shape.
+an empty result when no session is live.
+
+For growth per time bucket, as in a chart of tokens over time, `increase` over
+the bucket is correct: a live session writes one sample each second, so
+`sum(increase(claude_code_token_usage_tokens_total{type="output"}[1m]))`
+evaluated over a range returns the output tokens of each minute. Its limit is
+that tokens a session used while the stack received no samples are in the
+totals but not in the per-bucket growth.
 
 ## Query recipes, one worked example each
 
