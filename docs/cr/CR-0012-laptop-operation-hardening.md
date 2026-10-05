@@ -126,10 +126,10 @@ flowchart LR
 **Bounded disk**
 
 6. Every service in `compose.yaml` **MUST** have a container log configuration that limits the total log size for that service to 50 MB or less.
-7. The stack **MUST** read one retention setting, `RETENTION_PERIOD`, from the environment or from `.env`. Its value is a duration in hours, for example `720h`, which is a format that all three stores accept.
-8. When `RETENTION_PERIOD` is unset, empty, or `0`, the metric store and the log store **MUST** keep data with no limit, and the trace store **MUST** keep its product default of 336 hours. A plain `docker compose up -d` with no `.env` **MUST** start the stack in this state.
+7. The stack **MUST** read one retention setting, `RETENTION_PERIOD`, from the environment or from `.env`. Its value is a duration in whole hours of `24h` or more, for example `720h`, which is a format that all three stores accept. `0`, a value below `24h`, and a value in another unit are not valid.
+8. When `RETENTION_PERIOD` is unset or empty, the metric store and the log store **MUST** keep data with no limit, and the trace store **MUST** keep its product default of 336 hours. A plain `docker compose up -d` with no `.env` **MUST** start the stack in this state.
 9. When `RETENTION_PERIOD` is set to a valid duration greater than zero, the metric store, the log store, and the trace store **MUST** each delete data that is older than that duration. In the log store this includes the retention switch of the compactor and the store for delete requests that it needs. In the trace store this includes both the worker setting and the scheduler setting.
-10. The value **MUST** reach each store by variable interpolation in `compose.yaml`, into a command flag or into an environment variable that the store expands with `-config.expand-env=true`. No wrapper script **MUST** be necessary. `scripts/stack.up.sh` **MUST** reject a value that is not a duration in hours before it starts a service, with an error that names the value, the correct format, and the check to do after the fix. `.env.example` **MUST** document the setting, the default for each store, and the fact that a value deletes data permanently.
+10. The value **MUST** reach each store by variable interpolation in `compose.yaml`, into a command flag or into an environment variable that the store expands with `-config.expand-env=true`. No wrapper script **MUST** be necessary. The interpolation **MUST** give each store a valid default when the value is unset or empty, because the pinned stores reject an empty duration. `scripts/stack.up.sh` **MUST** reject a value that is not valid, which includes `0`, before it starts a service, with an error that names the value, the correct format, and the check to do after the fix. `.env.example` **MUST** document the setting, the valid values, the default for each store, the fact that a value deletes data permanently, and the fact that only `scripts/stack.up.sh` checks the value.
 11. The retention setting **MUST NOT** apply to the conversation database.
 
 **Backup**
@@ -185,6 +185,7 @@ flowchart LR
 * `stack/haproxy/haproxy.cfg`: access log for the OTLP backends, health check intervals.
 * `scripts/stack.backup.sh`: new.
 * `scripts/stack.verify.sh`: new checks.
+* `scripts/stack.up.sh`: validation of `RETENTION_PERIOD`.
 * `.env.example`, `.gitignore`: the retention setting and the backup directory.
 * `docs/architecture.md`, `docs/troubleshooting.md`, `docs/privacy.md`, `README.md`.
 
@@ -338,9 +339,10 @@ Then each service has a size limit and a file count limit
 ### AC-4: Retention is opt-in and the default changes nothing (covers FR7, FR8, FR9, FR10, FR11)
 
 ```gherkin
-Given no .env file and RETENTION_PERIOD is unset
+Given RETENTION_PERIOD is unset with no .env file, or is set to an empty value
 When the user runs docker compose up -d
-Then the /config endpoint of the metric store shows a block retention of 0
+Then all three stores start
+  And the /config endpoint of the metric store shows a block retention of 0
   And the /config endpoint of the log store shows compactor retention disabled
   And the /config endpoint of the trace store shows a block retention of 336h in the worker and in the scheduler
 
@@ -352,7 +354,7 @@ Then the /config endpoint of the metric store shows a block retention of 720h
   And the conversation server has no retention setting
   And .env.example states the default for each store and that a value deletes data permanently
 
-Given RETENTION_PERIOD is set to 30
+Given RETENTION_PERIOD is set to 30, to 0, or to 12h
 When the user runs scripts/stack.up.sh
 Then the script exits with a non-zero code before it starts a service
   And stderr names the value, the format, and the check to do after the fix
@@ -450,6 +452,8 @@ Then it reports one named check each for restart policies, log limits, network i
 
 When a reader opens the documents
 Then docs/architecture.md describes the two networks, the lifecycle settings, the log limit, the retention setting, and the backup command
+  And docs/architecture.md states the minimum Docker Engine version
+  And a search for the network name otel in compose.yaml, the Makefile, and the files under stack/ returns no match
   And docs/troubleshooting.md has a row for a half-alive stack, a repair at start, and a full disk
   And README.md names the retention setting and the default for each store
   And the validation report lists each new product setting with the pinned image and the command that confirmed it
