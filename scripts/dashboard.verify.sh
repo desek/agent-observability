@@ -2,7 +2,7 @@
 #
 # dashboard.verify.sh
 #
-# @agents-index Proves the provisioned Coding Agent Observability dashboard in one run: present by uid, read-only, every panel target executes and returns data where its family has samples or an explicit empty where it does not, no identity labels, counters use last_over_time, variables present, panels documented, JSON reviewable.
+# @agents-index Proves the provisioned Coding Agent Observability dashboard in one run: present by uid, read-only, every panel target executes and returns data where the store holds samples of its family, no identity labels, totals use last_over_time and growth only spans one bucket, variables present, panels documented.
 #
 # Purpose: prove the committed dashboard from the outside, the way Grafana loads
 # it and the way a datasource answers its panels, in a single run. It asserts
@@ -10,13 +10,16 @@
 #   1. The dashboard is provisioned and present by uid agent-observability.
 #   2. The dashboard is provisioned read-only, so the committed JSON stays true.
 #   3. Every panel target executes against its datasource without a query error,
-#      returns data where its metric family has samples on this stack, and an
-#      explicit empty success where the family legitimately has none. The two
-#      outcomes are printed distinctly so a reader can tell them apart.
+#      returns data where the store holds samples of its metric family, and an
+#      explicit empty success where the family legitimately has none or the
+#      store holds no sample of it in the window. The three outcomes are printed
+#      distinctly so a reader can tell them apart.
 #   4. No user identity label appears anywhere in the dashboard JSON.
-#   5. Every metric target aggregates with last_over_time and none use rate or
-#      increase, because the counters carry a session identifier and the growth
-#      operators return zero on that shape.
+#   5. Every metric target that is a total aggregates with last_over_time, and
+#      rate or increase appear only over the bucket interval of the panel. Each
+#      session is its own series with a first sample above zero, so a growth
+#      operator over the range undercounts a total, while over one bucket it
+#      measures the growth of that bucket correctly.
 #   6. The agent, repository, branch, model, and datasource variables exist.
 #   7. Every data panel carries a description and a no-data message.
 #   8. The JSON carries no absolute filesystem path and no volatile identifier.
@@ -85,18 +88,22 @@ base_url="http://127.0.0.1:${edge_port}"
 grafana_user="${GRAFANA_USER:-admin}"
 grafana_password="${GRAFANA_PASSWORD:-admin}"
 
-# The metric families known to hold samples on a stack where an agent has run,
-# and the families that populate only after the agent writes, edits, commits, or
-# opens a pull request, or that belong to an agent that is not installed. A
-# populated family MUST return data; an empty family MUST execute and return an
-# explicit empty result. A metric target that names a family in neither set is a
-# typo or a rename and is a failure, which is what catches a broken panel.
-# The seeder emits every family below on every run, so a panel querying one of
-# them must show data. subagent_* and tool_use_count joined this list when the
-# Delegation row was added: the seeder writes them for a share of its sessions,
-# so they are populated rather than optional.
+# The metric families a panel can query. A populated family is one every agent
+# session writes, or the seeder writes on every run; an empty family populates
+# only after the agent writes, edits, commits, or opens a pull request, or
+# belongs to an agent that is not installed. A metric target that names a family
+# in neither set is a typo or a rename and is a failure, which is what catches a
+# broken panel.
+# Whether a populated family MUST return data is decided from the store, not
+# assumed: a stack that was never seeded and ran no subagent holds no sample of
+# the delegation families, and a panel cannot show what was never ingested. The
+# check probes the family by metric name over the query window; where the store
+# holds samples the panel MUST return data, and where it holds none the panel
+# MUST still execute and passes as an explicit empty. The core family is the
+# exception: without token samples the stack proves no panel, so that fails.
 populated_families="cost_usage_USD token_usage_tokens session_count active_time_seconds subagent_duration_seconds subagent_token_usage_tokens tool_use_count"
 empty_families="lines_of_code_count code_edit_tool_decision commit_count pull_request_count"
+core_family="token_usage_tokens"
 
 # --- Reporting helpers -------------------------------------------------------
 pass() {
@@ -160,6 +167,8 @@ check_dashboard_readonly() {
 # order avoids one token being a prefix of another.
 substitute_vars() {
 	local e="$1"
+	# 168h in milliseconds. It goes first because $__interval is its prefix.
+	e="${e//\$__interval_ms/604800000}"
 	e="${e//\$__rate_interval/168h}"
 	e="${e//\$__interval/168h}"
 	e="${e//\$__range/168h}"
@@ -171,10 +180,35 @@ substitute_vars() {
 	printf '%s' "$e"
 }
 
+# --- Store probe: does a metric family hold samples in the query window -------
+# Prints "yes" or "no". The window is the same 168h that substitute_vars puts
+# into every panel query, so the probe and the panel look at the same data. The
+# selector is the metric name alone, with no template filter, so a panel whose
+# filters are wrong still fails against a family that has samples. A probe that
+# does not answer is a failure rather than a "no", so a store error never lets
+# a panel pass as empty.
+family_has_samples() {
+	local fam="$1" resp status
+	resp="$(curl -sG --max-time 20 "${base_url}/prometheus/api/v1/query" \
+		--data-urlencode "query=count(last_over_time({__name__=~\"(claude_code|pi)_${fam}_total\"}[168h]))" || true)"
+	status="$(printf '%s' "$resp" | jq -r '.status' 2>/dev/null || echo error)"
+	if [ "$status" != "success" ]; then
+		fail "the store probe for the metric family '${fam}' returned a query error from Mimir." \
+			"confirm Mimir is ready with 'curl -sf ${base_url}/prometheus/ready', then run the probe query in Grafana Explore to see the error." \
+			"re-run 'scripts/dashboard.verify.sh' and confirm the probe answers."
+	fi
+	if [ "$(printf '%s' "$resp" | jq '.data.result | length')" -gt 0 ]; then
+		printf 'yes'
+	else
+		printf 'no'
+	fi
+}
+
 # --- Check 3: every panel target executes with the right emptiness -----------
 # Runs each committed panel target against its datasource. A metric target is
-# classified by its family: a populated family MUST return data, an empty family
-# MUST execute and return empty, and an unknown family is a failure. A Loki
+# classified by its family: a populated family MUST return data where the store
+# holds samples of it and passes as an explicit empty where it holds none, an
+# empty family MUST execute, and an unknown family is a failure. A Loki
 # conversation target MUST return data; other log and trace targets execute and
 # may be empty, which is legitimate on a stack where no tool ran and no span was
 # exported. The data and empty outcomes are printed distinctly.
@@ -185,7 +219,7 @@ check_panel_queries_execute() {
 	tempo_body="$(mktemp)"
 	trap 'rm -f "$tempo_body"' RETURN
 
-	local dstype title_b64 expr_b64 title expr q resp status n families fam expect
+	local dstype title_b64 expr_b64 title expr q resp status n families fam expect has_samples
 
 	while IFS=$'\t' read -r dstype title_b64 expr_b64; do
 		[ -z "$dstype" ] && continue
@@ -202,9 +236,16 @@ check_panel_queries_execute() {
 						"re-run 'scripts/dashboard.verify.sh' and confirm the panel names a known family."
 				fi
 				expect="data"
+				has_samples="no"
 				for fam in $families; do
 					if printf '%s ' "$populated_families" | grep -qw "$fam"; then
-						:
+						if [ "$(family_has_samples "$fam")" = "yes" ]; then
+							has_samples="yes"
+						elif [ "$fam" = "$core_family" ]; then
+							fail "the store holds no sample of the core metric family '${fam}' in the last 168 hours, so no panel can be proved." \
+								"run an agent session with telemetry on, or seed synthetic data with 'scripts/demo.seed.sh'." \
+								"re-run 'scripts/dashboard.verify.sh' and confirm panel '${title}' returns data."
+						fi
 					elif printf '%s ' "$empty_families" | grep -qw "$fam"; then
 						expect="empty"
 					else
@@ -221,10 +262,12 @@ check_panel_queries_execute() {
 						"re-run 'scripts/dashboard.verify.sh' and confirm the panel executes."
 				fi
 				n="$(printf '%s' "$resp" | jq '.data.result | length')"
-				if [ "$expect" = "data" ]; then
+				if [ "$expect" = "data" ] && [ "$has_samples" = "no" ]; then
+					pass "panel '${title}' executes and returns an explicit empty result (the store holds no sample of its family in the last 168 hours)."
+				elif [ "$expect" = "data" ]; then
 					if [ "$n" -eq 0 ]; then
-						fail "metric panel '${title}' returned no data, but its family has samples on this stack." \
-							"confirm the target uses last_over_time rather than rate or increase, and that the template filters are not over-narrowing." \
+						fail "metric panel '${title}' returned no data, but the store holds samples of its family." \
+							"run the panel query in Grafana Explore: confirm a total uses last_over_time, a growth operator spans only the bucket interval, and the template filters are not over-narrowing." \
 							"re-run 'scripts/dashboard.verify.sh' and confirm the panel returns a value."
 					fi
 					pass "panel '${title}' executes and returns data (${n} series)."
@@ -307,22 +350,31 @@ check_no_identity_labels() {
 	pass "no user identity label appears in the dashboard JSON."
 }
 
-# --- Check 5: counters use last_over_time, not rate or increase --------------
-check_counters_use_last_over_time() {
-	local dstype title_b64 expr_b64 title expr
+# --- Check 5: totals use last_over_time, growth spans one bucket --------------
+# A growth operator is accepted only over $__interval or $__rate_interval, the
+# bucket of a time series panel. Over any other window it is a total in
+# disguise and undercounts, because it cannot see the first sample of a session
+# series. Each call is cut out up to the end of its range selector and judged on
+# its own, so a target that mixes last_over_time with a growth operator over
+# the range still fails.
+check_growth_spans_one_bucket() {
+	local dstype title_b64 expr_b64 title expr calls total bad
 	while IFS=$'\t' read -r dstype title_b64 expr_b64; do
 		[ "$dstype" != "prometheus" ] && continue
 		title="$(printf '%s' "$title_b64" | base64 -d)"
 		expr="$(printf '%s' "$expr_b64" | base64 -d)"
-		if printf '%s' "$expr" | grep -qE 'rate\(|increase\('; then
-			fail "metric panel '${title}' uses rate or increase, which return zero on the session-scoped counters." \
-				"rewrite the target as sum(last_over_time(...)) over the window, per the requirement that counters aggregate the last value." \
-				"re-run 'scripts/dashboard.verify.sh' and confirm no metric target uses rate or increase."
+		total="$(printf '%s' "$expr" | grep -oE '(rate|increase)\(' | wc -l | tr -d '[:space:]' || true)"
+		calls="$(printf '%s' "$expr" | grep -oE '(rate|increase)\([^][]*\[[^]]*\]' || true)"
+		bad="$(printf '%s\n' "$calls" | grep -vE '\[\$__(rate_)?interval\]$' | grep -c . || true)"
+		if [ "$bad" -gt 0 ] || [ "$total" -ne "$(printf '%s\n' "$calls" | grep -c . || true)" ]; then
+			fail "metric panel '${title}' uses rate or increase over a window that is not the bucket interval, which undercounts because a growth operator cannot see the first sample of a session series." \
+				"for a total over the range, rewrite the target as sum(last_over_time(...[\$__range])); for growth per bucket, give the operator the window [\$__interval]." \
+				"re-run 'scripts/dashboard.verify.sh' and confirm every growth operator spans one bucket."
 		fi
-		if ! printf '%s' "$expr" | grep -q 'last_over_time'; then
-			fail "metric panel '${title}' plots a counter without last_over_time." \
-				"wrap the selector in last_over_time over the window so it returns a value rather than nothing." \
-				"re-run 'scripts/dashboard.verify.sh' and confirm every metric target uses last_over_time."
+		if [ "$total" -eq 0 ] && ! printf '%s' "$expr" | grep -q 'last_over_time'; then
+			fail "metric panel '${title}' plots a counter with neither last_over_time nor a growth operator." \
+				"wrap the selector in last_over_time over the window for a total, or in increase over [\$__interval] for growth per bucket." \
+				"re-run 'scripts/dashboard.verify.sh' and confirm every metric target uses one of them."
 		fi
 	done < <(jq -r '
 		[.panels[] | select(.type != "row")] | .[]
@@ -330,7 +382,7 @@ check_counters_use_last_over_time() {
 		| (.targets // [])[]
 		| $dt + "\t" + ($t | @base64) + "\t" + (((.expr // .query) // "") | @base64)
 	' "$dashboard_json")
-	pass "every metric target aggregates with last_over_time and none use rate or increase."
+	pass "every total aggregates with last_over_time and every rate or increase spans one bucket."
 }
 
 # --- Check 6: template variables present -------------------------------------
@@ -392,7 +444,7 @@ check_dashboard_provisioned
 check_dashboard_readonly
 check_panel_queries_execute
 check_no_identity_labels
-check_counters_use_last_over_time
+check_growth_spans_one_bucket
 check_variables_present
 check_panel_descriptions
 check_json_reviewable
