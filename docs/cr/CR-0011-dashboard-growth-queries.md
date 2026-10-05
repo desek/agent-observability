@@ -2,7 +2,7 @@
 id: "CR-0011"
 name: cr-dashboard-growth-queries
 description: Correct the counter query rule so that a per-bucket panel can use increase while a range total keeps last_over_time, make the dashboard verifier enforce that rule and decide panel emptiness from the store, and correct the queries and descriptions of the Tokens and cache panels to agree with measured data.
-status: "approved"
+status: "implemented"
 date: 2026-10-05
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, users of the provisioned dashboard, agents that read the agent guide
