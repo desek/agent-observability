@@ -2,7 +2,7 @@
 id: "CR-0012"
 name: cr-laptop-operation-hardening
 description: Harden the stack for a laptop with one user by giving every service the same restart and shutdown behaviour, bounding the container logs, adding opt-in retention and a backup command, reducing the idle work the stack does for itself, and removing every outbound network path from the backends.
-status: "proposed"
+status: "approved"
 date: 2026-10-05
 requestor: daniel@grenemark.se
 stakeholders: Repository maintainers, users who run the stack on a laptop, agents that read the agent guide
@@ -128,7 +128,7 @@ flowchart LR
 6. Every service in `compose.yaml` **MUST** have a container log configuration that limits the total log size for that service to 50 MB or less.
 7. The stack **MUST** read one retention setting, `RETENTION_PERIOD`, from the environment or from `.env`. Its value is a duration in whole hours of `24h` or more, for example `720h`, which is a format that all three stores accept. `0`, a value below `24h`, and a value in another unit are not valid.
 8. When `RETENTION_PERIOD` is unset or empty, the metric store and the log store **MUST** keep data with no limit, and the trace store **MUST** keep its product default of 336 hours. A plain `docker compose up -d` with no `.env` **MUST** start the stack in this state.
-9. When `RETENTION_PERIOD` is set to a valid duration greater than zero, the metric store, the log store, and the trace store **MUST** each delete data that is older than that duration. In the log store this includes the retention switch of the compactor and the store for delete requests that it needs. In the trace store this includes both the worker setting and the scheduler setting.
+9. When `RETENTION_PERIOD` is set to a valid value, as requirement 7 defines it, the metric store, the log store, and the trace store **MUST** each delete data that is older than that duration. In the log store this includes the retention switch of the compactor and the store for delete requests that it needs. In the trace store this includes both the worker setting and the scheduler setting.
 10. The value **MUST** reach each store by variable interpolation in `compose.yaml`, into a command flag or into an environment variable that the store expands with `-config.expand-env=true`. No wrapper script **MUST** be necessary. The interpolation **MUST** give each store a valid default when the value is unset or empty, because the pinned stores reject an empty duration. `scripts/stack.up.sh` **MUST** reject a value that is not valid, which includes `0`, before it starts a service, with an error that names the value, the correct format, and the check to do after the fix. `.env.example` **MUST** document the setting, the valid values, the default for each store, the fact that a value deletes data permanently, and the fact that only `scripts/stack.up.sh` checks the value.
 11. The retention setting **MUST NOT** apply to the conversation database.
 
@@ -354,7 +354,7 @@ Then the /config endpoint of the metric store shows a block retention of 720h
   And the conversation server has no retention setting
   And .env.example states the default for each store and that a value deletes data permanently
 
-Given RETENTION_PERIOD is set to 30, to 0, or to 12h
+Given RETENTION_PERIOD is set to 30, to 0, to 12h, or to 30d
 When the user runs scripts/stack.up.sh
 Then the script exits with a non-zero code before it starts a service
   And stderr names the value, the format, and the check to do after the fix
@@ -453,7 +453,7 @@ Then it reports one named check each for restart policies, log limits, network i
 When a reader opens the documents
 Then docs/architecture.md describes the two networks, the lifecycle settings, the log limit, the retention setting, and the backup command
   And docs/architecture.md states the minimum Docker Engine version
-  And a search for the network name otel in compose.yaml, the Makefile, and the files under stack/ returns no match
+  And a search in compose.yaml, the Makefile, and the files under stack/ returns no match for the network name otel, where a match is the text _otel or the word otel that is not part of otelcol or of a setting name
   And docs/troubleshooting.md has a row for a half-alive stack, a repair at start, and a full disk
   And README.md names the retention setting and the default for each store
   And the validation report lists each new product setting with the pinned image and the command that confirmed it
