@@ -50,9 +50,8 @@ All services join one bridge network, `otel`, which has a route to the internet.
 |----------|---------------|
 | Restart policy | `unless-stopped` on 3 services, none on 5 services |
 | Stop grace period | Docker default of 10 seconds on every service |
-| Flush on shutdown | Off in the metric store and the log store |
 | Container log limit | None |
-| Retention | None in the metric store and the log store, product default in the trace store |
+| Retention | None in the metric store and the log store, product default of 336 hours (14 days) in the trace store |
 | Backup | None |
 | Scrape interval for `haproxy` and `mlflow` | 15 seconds |
 | Access log for OTLP ingestion | One line per request to the log store and to the container log |
@@ -83,8 +82,8 @@ flowchart LR
 
 The change has five parts. Each part is independent of the others in effect, and all five change the same small set of files.
 
-1. **Uniform lifecycle.** Every long-running service gets the same restart policy and a stop grace period that is long enough for a clean shutdown. The metric store and the log store flush their in-memory data to storage when they stop, so that a clean stop leaves no write-ahead log to replay or repair.
-2. **Bounded disk.** Every service gets a fixed maximum size for its container log. Retention for the three stores becomes one setting in `.env`. The default stays unlimited, because a retention period deletes data and the user must choose it.
+1. **Uniform lifecycle.** Every long-running service gets the same restart policy and a stop grace period that is long enough for a clean shutdown. Each store then closes its write-ahead log itself, and the next start replays a complete log.
+2. **Bounded disk.** Every service gets a fixed maximum size for its container log. Retention for the three stores becomes one setting in `.env`. The default changes nothing: the metric store and the log store keep data with no limit, and the trace store keeps its product default of 14 days. A retention period deletes data, so the user must choose it.
 3. **Backup.** A new command copies all named volumes to an archive on the host, and a documented procedure restores them.
 4. **Lower idle cost.** The stack scrapes itself less often, stops the access log for OTLP ingestion, checks health less often in the steady state, and runs the conversation server with the process count that one user needs.
 5. **No egress.** Usage reports and update checks are disabled in each product, and the backends move to a network that has no route out of the machine.
@@ -120,24 +119,24 @@ flowchart LR
 
 1. Every long-running service in `compose.yaml` **MUST** have the restart policy `unless-stopped`. The one-shot service `mlflow-provision` **MUST** keep `restart: "no"`.
 2. The services `loki`, `mimir`, `tempo`, `alloy`, and `mlflow` **MUST** have a stop grace period of 60 seconds or more.
-3. The metric store **MUST** flush its in-memory blocks to storage on a clean shutdown.
-4. The log store **MUST** flush its in-memory chunks to storage on a clean shutdown.
-5. A clean stop followed by a start **MUST** produce no log line about a repair or a corruption of a write-ahead log in any service.
+3. On a clean stop, every service **MUST** exit by itself before its grace period ends, so that no container has the exit code 137.
+4. Flush on shutdown **MUST** stay off in the metric store and the log store. Replay of the write-ahead log stays the recovery method, because the pinned metric store does not query flushed blocks for the most recent 12 hours by default.
+5. A clean stop followed by a start **MUST** produce no log line about a repair or a corruption of a write-ahead log in any service, and data that was stored before the stop **MUST** be returned by a query within 60 seconds after the ready state.
 
 **Bounded disk**
 
 6. Every service in `compose.yaml` **MUST** have a container log configuration that limits the total log size for that service to 50 MB or less.
-7. The stack **MUST** read one retention setting, `RETENTION_DAYS`, from the environment or from `.env`, and **MUST** apply it to the metric store, the log store, and the trace store.
-8. When `RETENTION_DAYS` is unset or empty, the stack **MUST** keep the current behaviour of each store, and **MUST NOT** delete stored telemetry.
-9. When `RETENTION_DAYS` is set to a whole number greater than zero, each of the three stores **MUST** delete data that is older than that number of days.
-10. `.env.example` **MUST** document `RETENTION_DAYS`, its default, and the fact that a value deletes data permanently.
+7. The stack **MUST** read one retention setting, `RETENTION_PERIOD`, from the environment or from `.env`. Its value is a duration in hours, for example `720h`, which is a format that all three stores accept.
+8. When `RETENTION_PERIOD` is unset, empty, or `0`, the metric store and the log store **MUST** keep data with no limit, and the trace store **MUST** keep its product default of 336 hours. A plain `docker compose up -d` with no `.env` **MUST** start the stack in this state.
+9. When `RETENTION_PERIOD` is set to a valid duration greater than zero, the metric store, the log store, and the trace store **MUST** each delete data that is older than that duration. In the log store this includes the retention switch of the compactor and the store for delete requests that it needs. In the trace store this includes both the worker setting and the scheduler setting.
+10. The value **MUST** reach each store by variable interpolation in `compose.yaml`, into a command flag or into an environment variable that the store expands with `-config.expand-env=true`. No wrapper script **MUST** be necessary. `scripts/stack.up.sh` **MUST** reject a value that is not a duration in hours before it starts a service, with an error that names the value, the correct format, and the check to do after the fix. `.env.example` **MUST** document the setting, the default for each store, and the fact that a value deletes data permanently.
 11. The retention setting **MUST NOT** apply to the conversation database.
 
 **Backup**
 
-12. A new script, `scripts/stack.backup.sh`, **MUST** write one archive for each named volume of the stack to a directory on the host.
-13. The script **MUST** stop the services that write to the volumes before it reads them, and **MUST** start them again when it ends, also when a step fails.
-14. The script **MUST** take the destination directory from a flag, **MUST** default to a directory in the repository that `.gitignore` excludes, and **MUST** put each run in a subdirectory named with the UTC time of the run.
+12. A new script, `scripts/stack.backup.sh`, **MUST** write one compressed `tar` archive for each of the six named volumes of the stack to a directory on the host. It **MUST** read the volumes with `docker run` on an image that `compose.yaml` already pins, and **MUST NOT** add a service or an image.
+13. The script **MUST** confirm that it can write to the destination before it stops a service. It **MUST** then stop the six services that mount a volume (`loki`, `mimir`, `tempo`, `alloy`, `grafana`, `mlflow`) before it reads the volumes, and **MUST** start them again when it ends, also when a step fails.
+14. The script **MUST** take the destination directory from a flag, **MUST** default to the directory `backups/` in the repository, which `.gitignore` **MUST** exclude, and **MUST** put each run in a subdirectory named with the UTC time of the run.
 15. The script **MUST** support `--dry-run`, which prints the volumes, the destination, and the services it would stop, and changes nothing.
 16. The script **MUST** verify each archive after it writes it, by a read of the full archive, and **MUST** exit with a documented non-zero code when an archive is absent or unreadable.
 17. The script **MUST** follow the conventions for scripts in this repository: the top docstring with purpose, usage, and parameters, the one-line file index annotation, results on stdout, diagnostics on stderr, no prompt, and an error message that names the failure, the fix, and the check to do after the fix.
@@ -147,8 +146,8 @@ flowchart LR
 **Lower idle cost**
 
 20. The collector **MUST** scrape the `haproxy` and `mlflow` targets at an interval of 60 seconds.
-21. The edge proxy **MUST NOT** write an access log line, to the container log or to the log store, for a request that it routes to an OTLP ingestion backend. Access log lines for all other backends **MUST** stay as they are.
-22. Each container health check **MUST** run at an interval of 30 seconds or more after the service is healthy, and **MUST** run at an interval of 5 seconds or less during the start period, so that the start of the stack is not slower.
+21. The edge proxy **MUST NOT** write an access log line, to the container log or to the log store, for a request that it routes to the backend `alloy_grpc` or `alloy_http` and that ends with a status below 400. Access log lines for a failed request to these two backends, and for every request to all other backends, which include `mlflow_otlp`, **MUST** stay as they are.
+22. Each container health check **MUST** run at an interval of 30 seconds or more after the service is healthy, and **MUST** run at an interval of 5 seconds or less during the start period, so that the start of the stack is not slower. This uses the `start_interval` field of the compose health check, which needs Docker Engine 25 or later.
 23. Each edge proxy health check **MUST** run at an interval of 15 seconds or more while the backend is up, and at an interval of 2 seconds or less while the backend is down or in transition.
 24. The conversation server **MUST** run one server worker, and **MUST NOT** run the job runner or the job consumers.
 25. The rule group **MUST** keep its evaluation interval of 30 seconds, because the dashboard reads its series.
@@ -156,17 +155,17 @@ flowchart LR
 **No egress**
 
 26. Usage reports **MUST** be disabled in Mimir, Loki, Tempo, and Alloy, and usage reports, update checks, and plugin update checks **MUST** be disabled in Grafana.
-27. `compose.yaml` **MUST** define two networks: one internal network with no route out of the machine, and one bridge network.
-28. Every service except `haproxy` **MUST** join the internal network only.
+27. `compose.yaml` **MUST** define two networks in place of `otel`: `backend`, an internal network with no route out of the machine, and `edge`, a bridge network. Each comment and each `Makefile` variable that names the network `otel` **MUST** be updated.
+28. Every service except `haproxy` **MUST** join `backend` only.
 29. `haproxy` **MUST** join both networks, and **MUST** stay the only service that publishes a host port, bound to `127.0.0.1`.
-30. A container on the internal network **MUST NOT** be able to open a connection to an address outside the machine.
+30. A container that joins only `backend` **MUST NOT** be able to open a connection to an address outside the machine. The authority for this is the `Internal` property of the network. A connection attempt is additional evidence, and it counts only when the same attempt from `haproxy` succeeds.
 
 **Verification and documents**
 
 31. `scripts/stack.verify.sh` **MUST** check requirements 1, 6, 28, 29, and 30 against the running stack, and **MUST** report each as one named check.
-32. `docs/architecture.md` **MUST** describe the two networks, the lifecycle settings, the log limit, the retention setting, and the backup command.
+32. `docs/architecture.md` **MUST** describe the two networks, the lifecycle settings, the log limit, the retention setting, the backup command, and the minimum Docker Engine version.
 33. `docs/troubleshooting.md` **MUST** have one row for each of these symptoms: the stack is half alive after the container runtime restarts, a store reports a repair at start, and the disk of the virtual machine is full.
-34. The line in `README.md` that states that the stack has no retention policy **MUST** state the new default and name the setting.
+34. The line in `README.md` that states that the stack has no retention policy **MUST** state the default for each store, which includes the 14 days for traces that the line omits today, and **MUST** name the setting.
 
 ### Non-Functional Requirements
 
@@ -181,7 +180,7 @@ flowchart LR
 ## Affected Components
 
 * `compose.yaml`: networks, restart policies, stop grace periods, log limits, health check intervals, environment for Grafana, flags for Alloy and the conversation server.
-* `stack/mimir/config.yaml`, `stack/loki/config.yaml`, `stack/tempo/config.yaml`: flush on shutdown, usage reports, retention.
+* `stack/mimir/config.yaml`, `stack/loki/config.yaml`, `stack/tempo/config.yaml`: usage reports, retention.
 * `stack/alloy/config.alloy`: scrape intervals.
 * `stack/haproxy/haproxy.cfg`: access log for the OTLP backends, health check intervals.
 * `scripts/stack.backup.sh`: new.
@@ -200,7 +199,7 @@ flowchart LR
 
 * **A replacement for Mimir.** A single Prometheus can store this volume with less memory, but it changes the rule provisioning, the datasource, and the OTLP path. The decision here is to keep Mimir and tune it.
 * **An on-demand stack.** A stack that starts and stops with the agent sessions lets the virtual machine sleep, but it changes how the user operates the stack. The stack stays always on.
-* **A default retention period.** The default stays unlimited. A later change can set a default after the user decides the period.
+* **A changed default retention.** With the setting unset, each store behaves as it does today: no limit for metrics and logs, 14 days for traces. A later change can set a default after the user decides the period.
 * **Retention or compaction of the conversation database.** Its size is the largest on the disk, but trace deletion in MLflow is a separate design.
 * **A persistent queue in the collector.** Sleep pauses all containers together, so a queue is not necessary for sleep. It is a separate reliability change.
 * **The rejected metric requests with an invalid temporality, and the rejected log pushes with structured metadata over the limit.** Both are data loss, and both are client or limit defects that are not specific to a laptop.
@@ -214,6 +213,7 @@ flowchart LR
 * **An internal network only, with the usage reports left on.** The calls then fail on a timer, write errors, and use power for retries.
 * **Bind mounts on the host in place of named volumes, so that host backup tools see the data.** File sharing between macOS and the virtual machine is slow for the write pattern of a store and has weaker guarantees for `fsync`.
 * **An online backup with no stop.** A copy of a store directory while the store writes can be inconsistent. A short stop gives a consistent archive and uses no product-specific tool.
+* **Flush on shutdown in the metric store and the log store.** A flush leaves no write-ahead log to repair, but the pinned metric store reads only the ingester for the most recent 12 hours (`-querier.query-store-after`), so each restart can hide recent metrics. Each flush also makes one small block for the compactor. A stop grace period removes the cause of the recorded corruption with no such effect.
 * **Remove the scrape of the edge proxy.** An earlier change added it on purpose. A longer interval keeps the data and removes three quarters of the samples.
 
 ## Impact Assessment
@@ -240,7 +240,7 @@ Measure and record the idle CPU use, the memory of the conversation server, and 
 
 ### Phase 2: Lifecycle and log limit
 
-Add the restart policy, the stop grace period, the log limit, and the flush on shutdown. Stop and start the stack, and confirm that no store reports a repair.
+Add the restart policy, the stop grace period, and the log limit. Stop and start the stack, and confirm that no store reports a repair.
 
 ### Phase 3: No egress
 
@@ -279,8 +279,8 @@ The repository tests the stack from the outside with shell verifiers that `make 
 |-----------|-----------|-------------|--------|-----------------|
 | `scripts/stack.verify.sh` | `check_restart_policies` | Every long-running service has `unless-stopped`, and the one-shot service has `no` | The running stack | One pass line, or a failure that names the service |
 | `scripts/stack.verify.sh` | `check_log_limits` | Every service has a log size limit | The running stack | One pass line, or a failure that names the service |
-| `scripts/stack.verify.sh` | `check_network_isolation` | Only `haproxy` joins the bridge network, and the internal network is internal | The running stack | One pass line, or a failure that names the service |
-| `scripts/stack.verify.sh` | `check_no_egress` | A backend container cannot open a connection to an outside address | A connection attempt from the `alloy` container | One pass line when the attempt fails, a failure when it connects |
+| `scripts/stack.verify.sh` | `check_network_isolation` | Only `haproxy` joins `edge`, and `backend` has the `Internal` property | The running stack | One pass line, or a failure that names the service |
+| `scripts/stack.verify.sh` | `check_no_egress` | A backend container cannot open a connection to an outside address | A TCP attempt to `1.1.1.1:443` with a timeout of 3 seconds, from `alloy` and, as the positive control, from `haproxy` | A pass when `alloy` fails and `haproxy` connects, a failure when `alloy` connects, and a skip that is not a pass when `haproxy` also fails |
 | `scripts/stack.backup.sh` | `--dry-run` run in `make ci` | The dry run lists six volumes and changes nothing | `--dry-run` | Exit code 0, six volume rows, no archive on disk |
 
 ### Tests to Modify
@@ -288,7 +288,7 @@ The repository tests the stack from the outside with shell verifiers that `make 
 | Test File | Test Name | Current Behavior | New Behavior | Reason for Change |
 |-----------|-----------|------------------|--------------|-------------------|
 | `scripts/stack.verify.sh` | `check_single_published_port` | Passes when one service publishes one loopback port | The same, with two networks present | The network count changes, the invariant does not |
-| `Makefile` | `check-haproxy` | Validates the proxy configuration on the network `otel` | Validates it on the networks that exist after the change | The network name changes |
+| `Makefile` | `check-haproxy` | Validates the proxy configuration on the network `otel` | Validates it on the network `backend`, where the backend names and the syslog target resolve | The network name changes |
 
 ### Tests to Remove
 
@@ -320,9 +320,10 @@ Then all eight long-running services are running again with no command from the 
 ```gherkin
 Given the stack is running and stored a metric sample and a log line in the last minute
 When the user stops the stack and starts it again
-Then no service was killed by the stop timeout
-  And a query returns the metric sample and the log line
-  And no service log since the start contains a repair or a corruption message for a write-ahead log
+Then no container has the exit code 137
+  And the effective configuration of the metric store and the log store has flush on shutdown off
+  And a query returns the metric sample and the log line within 60 seconds after the ready state
+  And no service log since the start matches "WAL read error", "corruption repair", "corrupted segment", "Deleting all segments newer", or "may have dropped data"
 ```
 
 ### AC-3: The container logs are bounded (covers FR6)
@@ -334,18 +335,27 @@ Then each service has a size limit and a file count limit
   And the product of the two is 50 MB or less
 ```
 
-### AC-4: Retention is opt-in and deletes nothing by default (covers FR7, FR8, FR9, FR10, FR11)
+### AC-4: Retention is opt-in and the default changes nothing (covers FR7, FR8, FR9, FR10, FR11)
 
 ```gherkin
-Given RETENTION_DAYS is unset
-When the stack starts
-Then the effective configuration of each store has the same retention as before the change
+Given no .env file and RETENTION_PERIOD is unset
+When the user runs docker compose up -d
+Then the /config endpoint of the metric store shows a block retention of 0
+  And the /config endpoint of the log store shows compactor retention disabled
+  And the /config endpoint of the trace store shows a block retention of 336h in the worker and in the scheduler
 
-Given RETENTION_DAYS is set to 30
+Given RETENTION_PERIOD is set to 720h
 When the stack starts
-Then the effective configuration of the metric store, the log store, and the trace store each has a retention of 30 days
+Then the /config endpoint of the metric store shows a block retention of 720h
+  And the /config endpoint of the log store shows compactor retention enabled, a retention period of 720h, and a delete request store
+  And the /config endpoint of the trace store shows a block retention of 720h in the worker and in the scheduler
   And the conversation server has no retention setting
-  And .env.example states that a value deletes data permanently
+  And .env.example states the default for each store and that a value deletes data permanently
+
+Given RETENTION_PERIOD is set to 30
+When the user runs scripts/stack.up.sh
+Then the script exits with a non-zero code before it starts a service
+  And stderr names the value, the format, and the check to do after the fix
 ```
 
 ### AC-5: One command makes a verified backup (covers FR12, FR13, FR14, FR16, FR17)
@@ -362,7 +372,12 @@ Given the destination directory cannot be written
 When the user runs scripts/stack.backup.sh
 Then the script exits with its documented non-zero code
   And stderr names the failure, the fix, and the check to do after the fix
-  And the stack is running
+  And no service stopped at any time during the run
+
+When the user runs scripts/stack.backup.sh --help with no terminal attached
+Then the output states the purpose, the usage, each flag, and each exit code
+  And the script did not prompt
+  And the file has the top docstring and one file index annotation
 ```
 
 ### AC-6: The dry run changes nothing and the restore is documented (covers FR15, FR18, FR19)
@@ -386,8 +401,12 @@ Given the stack is running with no dashboard open and no agent session
 When the idle CPU use is measured over 5 minutes
 Then it is lower than the baseline that was measured before the change
   And the haproxy and mlflow series have one sample each 60 seconds
-  And an OTLP request through the edge port makes no access log line
-  And a Grafana request through the edge port makes one access log line
+  And a successful OTLP request to /v1/metrics through the edge port makes no access log line
+  And a request to /v1/metrics that ends with a status of 400 or more makes one access log line
+  And a Grafana request and a request to /mlflow-otlp/ through the edge port each make one access log line
+  And docker inspect shows an interval of 30 seconds or more and a start interval of 5 seconds or less for each service with a health check
+  And each of the 10 server lines of the edge proxy has a check interval of 15 seconds or more and a fast and down interval of 2 seconds or less
+  And the ruler API through the edge port shows an interval of 30 seconds for the rule group
   And the time from scripts/stack.up.sh to the ready state is at most 10 seconds longer than the baseline
 ```
 
@@ -408,7 +427,8 @@ Given the stack is running
 When the networks of each service are inspected
 Then every service except haproxy joins only the internal network
   And haproxy joins both networks and is the only service with a published port, bound to 127.0.0.1
-  And a connection attempt from a backend container to an outside address fails
+  And the network backend has the Internal property
+  And a connection attempt from a backend container to an outside address fails while the same attempt from haproxy succeeds
   And the effective configuration of each product has usage reports and update checks disabled
 ```
 
@@ -431,7 +451,8 @@ Then it reports one named check each for restart policies, log limits, network i
 When a reader opens the documents
 Then docs/architecture.md describes the two networks, the lifecycle settings, the log limit, the retention setting, and the backup command
   And docs/troubleshooting.md has a row for a half-alive stack, a repair at start, and a full disk
-  And README.md names the retention setting
+  And README.md names the retention setting and the default for each store
+  And the validation report lists each new product setting with the pinned image and the command that confirmed it
   And no source file, script, or user-facing document contains a governance identifier
 ```
 
@@ -493,13 +514,13 @@ scripts/stack.backup.sh
 **Impact:** high
 **Mitigation:** The acceptance criterion requires a trace search after the change, and the conversation tracing verifier must pass. If ingestion needs the jobs, keep the job runner, reduce only the worker count, and record the finding in the validation report.
 
-### Risk 3: Flush on shutdown is slower than the stop grace period on a large store
+### Risk 3: A store does not exit in the stop grace period
 
 **Likelihood:** low
 **Impact:** medium
-**Mitigation:** The grace period is a minimum of 60 seconds. The validation measures the real stop time. A kill after the timeout leaves the write-ahead log, which the store replays as it does today.
+**Mitigation:** The grace period is a minimum of 60 seconds, and the validation measures the real stop time of each service. A kill after the timeout leaves the write-ahead log, which the store repairs as it does today, and the verifier reports the exit code.
 
-### Risk 4: A user sets a retention period and loses data that they wanted
+### Risk 4: A user sets a retention period and loses data that they wanted to keep
 
 **Likelihood:** medium
 **Impact:** high
@@ -537,4 +558,4 @@ Chosen approach: "keep the seven products, make their lifecycle uniform, bound a
 
 ## More Information
 
-The measurements come from the live stack on 2026-10-05 (Docker Desktop 29.6.1, linux/arm64). The defaults for usage reports were read from the pinned images: `-usage-stats.enabled` (Mimir 3.1.4, default true), `-reporting.enabled` (Loki 3.7.4, default true, and Tempo 3.0.2), `--disable-reporting` (Alloy v1.18.0), and `reporting_enabled`, `check_for_updates`, and `check_for_plugin_updates` in the default configuration of Grafana 13.1.1 (all true). The pinned MLflow v3.15.0 has a `--workers` option with a default of 4 and the environment variable `MLFLOW_SERVER_ENABLE_JOB_EXECUTION`. The flush settings `-blocks-storage.tsdb.flush-blocks-on-shutdown` and `-ingester.flush-on-shutdown` exist in the pinned images. One fact is not verified: whether `fsync` in the virtual machine reaches the physical disk on macOS. The backup command exists partly because of that gap.
+The measurements come from the live stack on 2026-10-05 (Docker Desktop 29.6.1, linux/arm64). The defaults for usage reports were read from the pinned images: `-usage-stats.enabled` (Mimir 3.1.4, default true), `-reporting.enabled` (Loki 3.7.4, default true, and Tempo 3.0.2), `--disable-reporting` (Alloy v1.18.0), and `reporting_enabled`, `check_for_updates`, and `check_for_plugin_updates` in the default configuration of Grafana 13.1.1 (all true). The pinned MLflow v3.15.0 has a `--workers` option with a default of 4 and the environment variable `MLFLOW_SERVER_ENABLE_JOB_EXECUTION`. The pinned Tempo has `-backend-worker.compaction.block-retention` and `-backend-scheduler.provider.work.compaction.block-retention`, both with a default of 336h, and all three stores have `-config.expand-env`. One fact is not verified: whether `fsync` in the virtual machine reaches the physical disk on macOS. The backup command exists partly because of that gap.
